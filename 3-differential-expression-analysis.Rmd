@@ -1,0 +1,1056 @@
+---
+title: "2-unpacking-patchseq-microglial-exp"
+author: "Keon Arbabi"
+date: "01/12/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# load required packages
+
+```{r load_libraries}
+# devtools::install_github("AllenInstitute/patchseqtools")
+# devtools::install_github('PavlidisLab/patchSeqQC')
+# devtools::install_github("AllenInstitute/VENcelltypes")
+
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(magrittr)
+  library(Seurat)
+  library(edgeR)
+  library(DESeq2)
+  library(MAST)
+  library(apeglm) 
+  library(scran)
+  library(glmGamPoi)
+  library(SingleCellExperiment)
+  library(hypeR)
+  library(here)
+  library(data.table)
+  library(Matrix)
+  library(ggpubr)
+  library(matrixStats)
+  library(ggplotify)
+  library(cowplot)
+  library(ggpubr)
+  library(grid)
+  library(ggrepel)
+  library(RColorBrewer)
+  library(viridis)
+  library(svglite)
+  library(clusterProfiler)
+  library(org.Mm.eg.db)
+  library(org.Hs.eg.db)
+})
+
+```
+
+# functions
+
+```{r}
+
+.reverselog_trans = function(base=exp(1)) {
+    trans = function(x) -log(x, base)
+    inv = function(x) base^(-x)
+    scales::trans_new(paste0("reverselog-", format(base)), trans, inv, 
+              scales::log_breaks(base=base), 
+              domain=c(1e-100, Inf))
+}
+
+.range01 = function(x){(x-min(x))/(max(x)-min(x))}
+
+.convertHumanGeneList = function(x){
+  require("biomaRt")
+  human = useMart("ensembl", dataset = "hsapiens_gene_ensembl")
+  mouse = useMart("ensembl", dataset = "mmusculus_gene_ensembl")
+  genesV2 = getLDS(attributes = c("hgnc_symbol"), filters = "hgnc_symbol", values = x , mart = human, attributesL = c("mgi_symbol"), martL = mouse, uniqueRows=T)
+  humanx = unique(genesV2[, 2])
+  # Print the first 6 genes found to the screen
+  print(head(humanx))
+  return(genesV2)
+}
+
+.convertMouseGeneList = function(x){
+  require("biomaRt")
+  human = useMart("ensembl", dataset = "hsapiens_gene_ensembl")
+  mouse = useMart("ensembl", dataset = "mmusculus_gene_ensembl")
+  genesV2 = getLDS(attributes = c("mgi_symbol"), filters = "mgi_symbol", values = x , mart = mouse, attributesL = c("hgnc_symbol"), martL = human, uniqueRows=T)
+  mousex = unique(genesV2[, 2])
+  # Print the first 6 genes found to the screen
+  print(head(mousex))
+  return(genesV2)
+}
+
+.getPseudobulk = function(mat, celltype) {
+   mat.summary = do.call(cbind, lapply(levels(celltype), function(ct) {
+     cells = names(celltype)[celltype==ct]
+     pseudobulk = rowSums(mat[, cells])
+     return(pseudobulk)
+   }))
+   colnames(mat.summary) = levels(celltype)
+   return(mat.summary)
+}
+
+plot_enrichments_1 = function(plot_res){
+  ggplot() +
+  geom_point(data = plot_res,
+             aes(x = reorder(label, -patch_fdr), y = ref_fdr, size = log10(geneset)),
+             color = "grey", alpha = 0.8) +
+  geom_point(data = plot_res,
+             aes(x = reorder(label, -patch_fdr), y = patch_fdr, color = patch_fdr, size = log10(geneset)),
+             alpha = 0.8) +
+  scale_color_continuous(low = "#E53935", high = "#114357", guide = guide_colorbar(reverse=TRUE)) +
+  labs(title = "", x = "", y = "FDR", color = "FDR") +
+  coord_flip() +
+  scale_x_discrete(labels = function(x) str_wrap(x, width = 45)) +
+  scale_y_continuous(trans = .reverselog_trans(10)) +
+  geom_hline(yintercept = 0.05, linetype = "dotted") +
+  guides(size = "none") + 
+  #guides(color = guide_colourbar(barwidth = 0.5, barheight = 10)) +
+  theme(plot.title = element_text(hjust = 0.5),
+        axis.title.y = element_blank()) +
+  theme_classic(base_size = 14)
+}
+
+plot_enrichments_2 = function(res, title){
+  ggplot(res, aes(x = label, y = fdr, size = log10(geneset), color = group)) +
+    geom_point(alpha = 0.75) +
+    scale_size(range = c(5,13)) +
+    scale_color_manual(values = c("#E53935","#114357")) +
+    labs(title = title, x = "", y = "FDR", color = "") +
+    coord_flip() +
+    scale_y_continuous(trans = .reverselog_trans(10)) +
+    geom_hline(yintercept = 0.01, linetype = "dotted") +
+    guides(size = "none") + 
+    theme(plot.title = element_text(hjust = 0.5),
+          axis.title.y = element_blank()) +
+    theme_classic() + 
+    theme(text = element_text(size = 28))
+}
+
+# plot_enrichments_2 = function(res){
+#   ggplot() +
+#     geom_point(data = res %>% filter(group == "reference"),
+#                aes(x = label, y = fdr, size = log10(geneset)),
+#                color = "grey", alpha = 0.8) +
+#     geom_point(data = res %>% filter(group == "patchseq"),
+#                aes(x = label, y = fdr, color = fdr, size = log10(geneset)),
+#                alpha = 0.8) +
+#     scale_color_continuous(low = "#E53935", high = "#114357", guide = guide_colorbar(reverse=TRUE)) +
+#     labs(title = "", x = "", y = "FDR", color = "FDR") +
+#     coord_flip() +
+#     scale_y_continuous(trans = .reverselog_trans(10)) +
+#     geom_hline(yintercept = 0.01, linetype = "dotted") +
+#     guides(size = "none") + 
+#     theme(plot.title = element_text(hjust = 0.5),
+#           axis.title.y = element_blank()) +
+#     theme_classic() +
+#     theme(text = element_text(size = 24))
+# }
+
+
+
+```
+
+# load data
+
+```{r load_data}
+
+# patch-seq human
+metadata_h = fread(file = here("data","patchseq","20200625_patchseq_metadata_human.csv"), data.table = FALSE)
+matrix_h = fread(file = here("data","patchseq","20200512_Human_PatchSeq_Release_count.csv"), data.table = FALSE) %>%
+  dplyr::rename(gene = 1) %>%
+  dplyr::distinct(gene, .keep_all= TRUE) %>%
+  column_to_rownames(var = "gene")
+matrix_h = matrix_h[grep("^LOC|^MT-|^RP[0-9]|^BC[0-9]|-PS", rownames(matrix_h), invert=T),]
+metadata_h = metadata_h %>%
+  dplyr::rename(sample_id = transcriptomics_sample_id, cluster_label = corresponding_AIT2.3.1_alias)
+
+qcMetrics_h = read.csv(file = here("output","human_qcMetrics.csv"))
+metadata_h = merge(metadata_h, qcMetrics_h[,-1], by = "sample_id")
+metadata_h$Microglia = .range01(metadata_h$Microglia)
+metadata_h = metadata_h[colSums(!is.na(metadata_h))>0]
+rownames(metadata_h) = metadata_h$sample_id
+
+# patch-seq mouse
+metadata_m = fread(file = here("data","patchseq","20200625_patchseq_metadata_mouse.csv"), data.table = FALSE)
+matrix_m = fread(file = here("local","20200513_Mouse_PatchSeq_Release_count.v2","20200513_Mouse_PatchSeq_Release_count.v2.csv"), data.table = FALSE) %>%
+  dplyr::rename(gene = 1) %>%
+  column_to_rownames(var = "gene") 
+matrix_m = matrix_m[grep("^LOC|^MT-|^RP[0-9]|^BC[0-9]|-PS", rownames(matrix_m), invert=T),]
+metadata_m = dplyr::rename(metadata_m, sample_id = transcriptomics_sample_id)
+
+qcMetrics_m = read.csv(file = here("output","mouse_qcMetrics.csv"))
+metadata_m = merge(metadata_m, qcMetrics_m[,-1], by = "sample_id")
+metadata_m = dplyr::rename(metadata_m, Microglia = Macrophage)
+metadata_m$Microglia = .range01(metadata_m$Microglia)
+metadata_m = metadata_m[colSums(!is.na(metadata_m))>0]
+rownames(metadata_m) = metadata_m$sample_id
+
+# reference human
+metadata_h_ref = fread(file = here("local","Human Multiple Cortical Areas SMART-seq","metadata.csv"), data.table = F) %>%
+  filter(region_label == "MTG") %>%
+  filter(str_detect(cluster_label, "Exc L2-3|Exc L2-4|Exc L3-4") | subclass_label == "Microglia")
+rownames(metadata_h_ref) = metadata_h_ref$sample_name
+
+matrix_h_ref = fread(file = here("local","Human Multiple Cortical Areas SMART-seq","matrix.csv"), data.table = F) %>%
+  filter(sample_name %in% metadata_h_ref$sample_name) %>%
+  column_to_rownames(var = "sample_name") %>%
+  t() %>% as.data.frame()
+matrix_h_ref = matrix_h_ref[grep("^LOC|^MT-|^RP[0-9]|^BC[0-9]|-PS", rownames(matrix_h_ref), invert=T),]
+
+# reference mouse
+metadata_m_ref = fread(file = here("local","Mouse Whole Cortex and Hippocampus SMART-seq","metadata.csv"), data.table = F) %>%
+  filter(region_label %in% c("VIS","VISp") & class_label == "GABAergic" | subclass_label == "Micro-PVM")
+rownames(metadata_m_ref) = metadata_m_ref$sample_name
+
+```
+
+# seurat workflow 
+
+```{r}
+
+seu_h = CreateSeuratObject(count = matrix_h, meta.data = metadata_h)
+
+#seu_h = SCTransform(seu_h, method = "glmGamPoi", vars.to.regress = "transcriptomics_batch", verbose = FALSE)
+
+seu_h = NormalizeData(seu_h, normalization.method = "LogNormalize", scale.factor = 1000000)
+seu_h = FindVariableFeatures(seu_h)
+seu_h = ScaleData(seu_h, features = rownames(seu_h))
+
+seu_h = RunPCA(seu_h, features = VariableFeatures(object = seu_h), verbose = F)
+seu_h = FindNeighbors(seu_h, dims = 1:20, verbose = F) 
+seu_h = FindClusters(seu_h, verbose = F)
+seu_h = RunUMAP(seu_h, dims = 1:20, verbose = F, seed.use = NULL) 
+
+table(seu_h@active.ident)
+
+Idents(seu_h) = "seurat_clusters"
+#Idents(seu_h) = "corresponding_AIT2.3.1_alias"
+p1 = DimPlot(seu_h, reduction = "umap", label = F, raster = F, shuffle = T) +
+  scale_colour_manual(values=rep(brewer.pal(5,"Set1"),times=4))+
+  labs(x="", y="") + theme_classic() + NoLegend() 
+
+# Idents(seu_h) = "high_micro"
+# p2 = DimPlot(seu_h, reduction = "umap") + 
+#   scale_color_manual(labels = c("FALSE", "TRUE"), values = c("grey", "royalblue3"))+
+#   labs(x = "", y = "", color = "Microglial\nContamination >0.6") + theme_classic()
+
+pal = colorRampPalette(rev(brewer.pal(n = 11, name = "RdYlBu")))(10)
+
+p2 = FeaturePlot(seu_h, features = "Microglia", pt.size = 2) +
+  scale_color_gradientn(colors = pal, labels = seq(0,1,0.2), breaks = seq(0,1,0.2)) +
+  guides(color = guide_colourbar(barwidth = 0.5, barheight = 10)) +
+  labs(x = "UMAP 1", y = "UMAP 2", title = "", color = "Microglial\nContamination\nScore") + 
+  theme_classic() +
+  theme(text = element_text(size = 24))
+
+svglite("output/figures/umap_human.svg", width = 11, height = 8)
+p2
+dev.off()
+
+```
+
+```{r}
+
+seu_m = CreateSeuratObject(count = matrix_m, meta.data = metadata_m)
+seu_m = NormalizeData(seu_m, normalization.method = "LogNormalize", scale.factor = 1000000)
+
+seu_m = FindVariableFeatures(seu_m, selection.method = "vst", nfeatures = 5000)
+seu_m = ScaleData(seu_m, features = rownames(seu_m))
+
+seu_m = RunPCA(seu_m, features = VariableFeatures(object = seu_m), verbose = F)
+seu_m = FindNeighbors(seu_m, dims = 1:20, verbose = F) 
+seu_m = FindClusters(seu_m, verbose = F, resolution = 0.5)
+seu_m = RunUMAP(seu_m, dims = 1:20, verbose = F, seed.use = NULL) 
+
+table(seu_h@active.ident)
+
+Idents(seu_m) = "seurat_clusters"
+#Idents(seu_m) = "corresponding_AIT2.3.1_alias"
+p1 = DimPlot(seu_m, reduction = "umap", label = F, raster = F, shuffle = T) +
+  scale_colour_manual(values=rep(brewer.pal(9,"Set1"),times=10))+
+  labs(x="", y="") + theme_classic() + NoLegend() 
+
+# Idents(seu_m) = "high_micro"
+# p2 = DimPlot(seu_m, reduction = "umap") + 
+#   scale_color_manual(labels = c("FALSE", "TRUE"), values = c("grey", "royalblue3"))+
+#   labs(x = "", y = "", color = "Microglial\nContamination >0.6") + theme_classic() 
+
+pal = colorRampPalette(rev(brewer.pal(n = 11, name = "RdYlBu")))(10)
+
+p2 = FeaturePlot(seu_m, features = "Microglia") +
+  scale_color_gradientn (colors = pal, labels = seq(0,1,0.2), breaks = seq(0,1,0.2)) +
+  guides(color = guide_colourbar(barwidth = 0.5, barheight = 10)) +
+  labs(x = "UMAP 1", y = "UMAP 2", title = "", color = "Microglial\nContamination\nScore") + 
+  theme_classic() +
+  theme(text = element_text(size = 24))
+
+svglite("output/figures/umap_mouse.svg", width = 11, height = 8)
+p2
+dev.off()
+
+```
+
+
+# human functional analyses 
+
+```{r}
+
+if(file.exists("./output/de_h.csv") == FALSE){
+  
+  high = metadata_h %>% filter(Microglia > quantile(metadata_h$Microglia, probs = 0.75)) %>% pull(sample_id)
+  low = metadata_h %>%  filter(Microglia < quantile(metadata_h$Microglia, probs = 0.25)) %>% pull(sample_id)
+  
+  de_h = FindMarkers(seu_h, ident.1 = high, ident.2 = low, test.use = "DESeq2")
+  de_h = rownames_to_column(de_h, var = "gene")
+  
+  hist(de_h$p_val, 50)
+  hist(de_h$p_val_adj, 50)
+  median(de_h$p_val, na.rm = T)
+  
+  de_h %>% 
+  ggplot(aes(x = avg_log2FC, y = -log10(p_val))) + geom_point() + theme_minimal()
+
+  #write.csv(de_h, file = "./output/de_h.csv")
+}  
+
+if(file.exists("./output/de_h_ref.csv") == FALSE){
+  
+  seu_h_ref = CreateSeuratObject(count = matrix_h_ref, meta.data = metadata_h_ref)
+  seu_h_ref = NormalizeData(seu_h_ref, normalization.method = "LogNormalize", scale.factor = 1000000)
+  
+  Idents(seu_h_ref) = "class_label"
+  
+  # seu_h_ref = subset(seu_h_ref, downsample = 70)
+  # table(seu_h_ref$class_label)
+
+  de_h_ref = FindMarkers(seu_h_ref, ident.1 = "Non-neuronal", ident.2 = "Glutamatergic", test.use = "DESeq2")
+  de_h_ref = rownames_to_column(de_h_ref, var = "gene")
+  
+  hist(de_h_ref$p_val, 50)
+  hist(de_h_ref$p_val_adj, 50)
+  median(de_h_ref$p_val, na.rm = T)
+  
+  de_h_ref %>% 
+  filter(!p_val == 0) %>%
+  ggplot(aes(x = avg_log2FC, y = -log10(p_val))) + geom_point() + theme_minimal()
+
+  #write.csv(de_h_ref, file = "./output/de_h_ref.csv")
+}
+
+```
+
+## volcano plot
+```{r}
+
+de_h = read.csv(file = "./output/de_h.csv")[,-1]
+de_h_ref = read.csv(file = "./output/de_h_ref.csv")[,-1]
+
+de_h_up = de_h %>% filter(avg_log2FC > 2.5, p_val < 0.01) %>% arrange(desc(avg_log2FC)) %>% pull(gene, avg_log2FC)
+de_h_down = de_h %>% filter(avg_log2FC < -2.5, p_val < 0.01) %>% arrange(desc(avg_log2FC)) %>% pull(gene, avg_log2FC)
+de_h_ref_up = de_h_ref %>% filter(avg_log2FC > 2.5, p_val < 0.01) %>% arrange(desc(avg_log2FC))  %>% pull(gene, avg_log2FC)
+de_h_ref_down = de_h_ref %>% filter(avg_log2FC < -2.5, p_val < 0.01) %>% arrange(desc(avg_log2FC)) %>% pull(gene, avg_log2FC)
+
+de_up_diff = de_h %>% filter(gene %in% setdiff(de_h_up, de_h_ref_up)) %>% top_n(300, wt = p_val) %>% pull(gene, avg_log2FC)
+de_down_diff = de_h %>% filter(gene %in% setdiff(de_h_down, de_h_ref_down)) %>% top_n(-300, wt = p_val) %>% pull(gene, avg_log2FC)
+
+de_h = de_h %>% 
+  #mutate(delabel = case_when(gene %in% c(de_h_up, de_h_down) ~ gene)) %>%
+  mutate(delabel = case_when(gene %in% c(de_up_diff, de_down_diff) ~ gene)) %>%
+  mutate(diffexp = case_when(gene %in% de_h_up ~ "UP", gene %in% de_h_down ~ "DOWN", TRUE ~ "NO"))
+
+svglite("output/figures/humanvol.svg", width = 14, height = 16.5)
+ggplot(data = de_h, aes(x = avg_log2FC, y = -log10(p_val), col = diffexp, label = delabel)) +
+        geom_point() + 
+        geom_text_repel(max.overlaps = 10, size = 8) +
+        scale_color_manual(values = c("#114357","black","#E53935")) +
+        geom_vline(xintercept = c(-2.5, 2.5), col = "#E53935", linetype = "dashed") +
+        geom_hline(yintercept = -log10(0.01), col = "#E53935", linetype = "dashed") +
+        labs(x = "average log2 fold-change", y = "-log10(p value)") +
+        theme_classic() +
+        theme(legend.position = "none", 
+              text = element_text(size = 30))
+dev.off()
+
+length(de_h_up)
+length(de_h_ref_up)
+length(de_up_diff)
+
+```
+## GO analysis
+```{r}
+
+geneList = de_h %>% filter(gene %in% setdiff(de_h_up, de_h_ref_up)) %>% arrange(desc(avg_log2FC)) %>% pull(avg_log2FC)
+names(geneList) = de_h %>% filter(gene %in% setdiff(de_h_up, de_h_ref_up)) %>% arrange(desc(avg_log2FC)) %>% pull(gene)
+  
+gse = gseGO(geneList = geneList, 
+          ont = "BP", 
+          keyType = "SYMBOL", 
+          minGSSize = 30, 
+          maxGSSize = 800, 
+          pvalueCutoff = 1, 
+          verbose = TRUE, 
+          OrgDb = org.Hs.eg.db, 
+          pAdjustMethod = "none")
+
+gse = simplify(gse, cutoff = 0.7, by = "p.adjust", select_fun = min)
+
+enrichplot::dotplot(gse, showCategory = 15) +
+  scale_y_discrete(labels = function(x) str_wrap(x, width = 50))
+
+enrichplot::dotplot(gse, showCategory = 15, split = ".sign") +
+  facet_grid(~.sign) +
+  scale_y_discrete(labels = function(x) str_wrap(x, width = 50))
+
+```
+## MGEnrichment 
+```{r}
+
+#load(file = "./local/Jao_and_Ciernia_2021/Mouse_Human_genelistDatabaseAugust2021.RData")
+
+human.master3 = human.master3 %>% mutate_all(na_if,"")
+human.master3 = human.master3[complete.cases(human.master3),]
+
+genesets = split(human.master3$hgnc_symbol, human.master3$listname)
+genesets = genesets[lapply(genesets, length) > 30]
+
+signatures = list(human_patch_seq = de_h_up, human_reference = de_h_ref_up)
+#signatures = list(human_patch_seq = de_h_up[1:100], human_reference = de_h_ref_up[1:100])
+
+hyp_obj = hypeR(signatures, 
+                genesets, 
+                test = "hypergeometric", 
+                background = 33882,
+                plotting = T)
+
+res = data.frame(hyp_obj$data$human_patch_seq$data[,-c(2:4,6,7)],
+                 patch_fdr = hyp_obj$data$human_patch_seq$data[,3],
+                 ref_fdr = hyp_obj$data$human_reference$data[,3])
+tmp = human.master3 %>% dplyr::rename(label = listname) %>% dplyr::select(-c("ensembl_gene_id","hgnc_symbol","entrezgene_id")) %>% unique()
+res = left_join(res, tmp, by = "label")
+rownames(res) = NULL
+
+plot_res = res %>%
+  #filter(patch_fdr < ref_fdr)
+  filter(!patch_fdr == 0, !ref_fdr == 0) %>%
+  slice_max(order_by = -patch_fdr, n = 10) 
+
+#svglite("output/figures/human_terms_Jao.svg", width = 8, height = 6)
+plot_enrichments_1(plot_res)
+#dev.off()
+
+```
+
+## Friedman
+```{r}
+
+signatures = list(patch_seq = de_h_up, 
+                  reference = de_h_ref_up)
+
+f_modules = read.csv(file = here("local","Friedman_2018","human_course.csv")) %>%
+  dplyr::rename(genes = Gene.Symbol)
+
+genesets = split(f_modules$gene, f_modules$Module)
+names(genesets)[5:6] = c("Neurodegeneration-\nRelated (126)", "Neutrophil,\nMonocyte (27)")
+
+hyp_obj = hypeR(signatures, genesets, test = "hypergeometric", plotting = T)
+res = rbind(hyp_obj$data$patch_seq$data, hyp_obj$data$reference$data)
+res$group = c(rep("patchseq", nrow(res)/2), rep("reference", nrow(res)/2))
+res$gene_ratio = res$overlap/res$geneset
+rownames(res) = NULL
+order = res %>% filter(group == "patchseq") %>% arrange(desc(fdr)) %>% pull(label)
+res$label = factor(res$label, levels = order)
+
+svglite("output/figures/human_terms_Friedman.svg", width = 10, height = 8, scaling = 1)
+plot_enrichments_2(res, "Friedman et al. 2018")
+dev.off()
+
+```
+## Olah
+```{r}
+
+signatures = list(patch_seq = de_h_up, 
+                  reference = de_h_ref_up)
+
+o_clusters = read.csv(file = here("local","Olah_2020","Olah_cluster_de.csv"))
+o_clusters$up_type = as.factor(o_clusters$up_type)
+o_clusters = filter(o_clusters, num_down_types > 3)
+o_clusters = merge(o_clusters, de_h[,-c(7,8)], by = "gene", all.x = T)
+o_clusters = o_clusters[complete.cases(o_clusters),]
+
+o_clusters = o_clusters %>%
+  mutate(temp = "Cluster") %>%
+  unite(up_type, c("temp","up_type"), sep = " ") %>%
+  group_by(up_type) %>%
+  mutate(temp = paste0(" (",n(),")")) %>%
+  unite(up_type, c("up_type","temp"), sep = "")
+table(o_clusters$up_type)
+
+genesets = split(o_clusters$gene, o_clusters$up_type)
+
+hyp_obj = hypeR(signatures, genesets, test = "hypergeometric", plotting = T)
+res = rbind(hyp_obj$data$patch_seq$data, hyp_obj$data$reference$data)
+res$group = c(rep("patchseq",8), rep("reference",8))
+rownames(res) = NULL
+order = res %>% filter(group == "patchseq") %>% arrange(desc(fdr)) %>% pull(label)
+res$label = factor(res$label, levels = order)
+
+svglite("output/figures/human_terms_Olah.svg", width = 9, height = 8)
+plot_enrichments_2(res, "Olah et al. 2020")
+dev.off()
+
+```
+
+## DAMs and Early/Late
+```{r}
+
+signatures = list(patch_seq = de_h_up, 
+                  reference = de_h_ref_up)
+
+early_cluster3 = read.csv(file = here("local","Mathys_2017","SCDE_Cluster2versus3.csv")) %>% filter(cZ < -5) %>% pull(X)
+early_cluster3 = .convertMouseGeneList(early_cluster3)[2] %>% unlist()
+
+early_cluster7 = read.csv(file = here("local","Mathys_2017","SCDE_Cluster2versus7.csv")) %>% filter(cZ < -5) %>% pull(X)
+early_cluster7 = .convertMouseGeneList(early_cluster7)[2] %>% unlist()
+
+late_cluster6 = read.csv(file = here("local","Mathys_2017","SCDE_Cluster2versus6.csv")) %>% filter(cZ < -5) %>% pull(X)
+late_cluster6 = .convertMouseGeneList(late_cluster6)[2] %>% unlist()
+
+dams = mouse.master3 %>% filter(listname == "DAM > HOM MG") %>% pull(mgi_symbol)
+dams = .convertMouseGeneList(dams)[2] %>% unlist()
+
+genesets = list(early_cluster3, early_cluster7, late_cluster6, dams)
+names(genesets) = c("Early response\n(Cluster 3)", "Early response\n(Cluster 7)", "Late response", "Upregulated\nin DAM")
+
+hyp_obj = hypeR(signatures, genesets, test = "hypergeometric", plotting = T)
+res = rbind(hyp_obj$data$patch_seq$data, hyp_obj$data$reference$data)
+res$group = c(rep("patchseq", nrow(res)/2), rep("reference", nrow(res)/2))
+rownames(res) = NULL
+order = res %>% filter(group == "patchseq") %>% arrange(desc(fdr)) %>% pull(label)
+res$label = factor(res$label, levels = order)
+
+svglite("output/figures/human_terms_Mathys.svg", width = 9, height = 8)
+plot_enrichments_2(res, "Mathys et al. 2017\nKeren-Shaul et al. 2017")
+dev.off()
+
+```
+
+# mouse functional analyses
+```{r}
+
+if(file.exists("./output/de_m.csv") == FALSE){
+  
+  high = metadata_m %>% filter(Microglia > quantile(metadata_m$Microglia, probs = 0.90)) %>% pull(sample_id)
+  low = metadata_m %>%  filter(Microglia < quantile(metadata_m$Microglia, probs = 0.10)) %>% pull(sample_id)
+  
+  de_m = FindMarkers(seu_m, ident.1 = high, ident.2 = low, test.use = "DESeq2")
+  de_m = rownames_to_column(de_m, var = "gene")
+  
+  hist(de_m$p_val, 50)
+  hist(de_m$p_val_adj, 50)
+  median(de_m$p_val, na.rm = T)
+  
+  de_m %>% 
+  ggplot(aes(x = avg_log2FC, y = -log10(p_val))) + geom_point() + theme_minimal()
+
+  write.csv(de_m, file = "./output/de_m.csv")
+}  
+
+if(file.exists("./output/de_m_ref.csv") == FALSE){
+  
+  load(here("local","Mouse Whole Cortex and Hippocampus SMART-seq","Seurat.ss.rda"))
+  seu_m_ref = ss.seurat
+  rm(ss.seurat)
+  
+  seu_m_ref = NormalizeData(seu_m_ref, normalization.method = "LogNormalize", scale.factor = 1000000)
+  
+  seu_m_ref = subset(seu_m_ref, subset = sample_name %in% metadata_m_ref$sample_name)
+  Idents(seu_m_ref) = "class_label"
+  
+  # seu_m_ref = subset(seu_m_ref, downsample = 450)
+  # table(seu_m_ref$class_label)
+  
+  de_m_ref = FindMarkers(seu_m_ref, ident.1 = "Non-Neuronal", ident.2 = "GABAergic", test.use = "DESeq2")
+  de_m_ref = rownames_to_column(de_m_ref, var = "gene")
+  
+  hist(de_m_ref$p_val, 50)
+  hist(de_m_ref$p_val_adj, 50)
+  median(de_m_ref$p_val, na.rm = T)
+  
+  de_m_ref %>% 
+  filter(!p_val == 0) %>%
+  ggplot(aes(x = avg_log2FC, y = -log10(p_val))) + geom_point() + theme_minimal()
+  
+  #write.csv(de_m_ref, file = "./output/de_m_ref.csv")
+}
+
+```
+
+## volcano plot
+```{r}
+
+de_m = read.csv(file = "./output/de_m.csv")[,-1]
+de_m_ref = read.csv(file = "./output/de_m_ref.csv")[,-1]
+
+de_m_up = de_m %>% filter(avg_log2FC > 2.0, p_val < 0.01 | p_val == 0) %>% arrange(desc(avg_log2FC)) %>% pull(gene, avg_log2FC)
+de_m_down = de_m %>% filter(avg_log2FC > 2.0, p_val < 0.01 | p_val == 0) %>% arrange(desc(avg_log2FC)) %>% pull(gene, avg_log2FC)
+de_m_ref_up = de_m_ref %>% filter(avg_log2FC > 2.0, p_val < 0.01 | p_val == 0) %>% arrange(desc(avg_log2FC))  %>% pull(gene, avg_log2FC)
+de_m_ref_down = de_m_ref %>% filter(avg_log2FC > 2.0, p_val < 0.01 | p_val == 0) %>% arrange(desc(avg_log2FC)) %>% pull(gene, avg_log2FC)
+
+de_up_diff = de_m %>% filter(gene %in% setdiff(de_m_up, de_m_ref_up)) %>% top_n(300, wt = p_val) %>% pull(gene, avg_log2FC)
+de_down_diff = de_m %>% filter(gene %in% setdiff(de_m_down, de_m_ref_down)) %>% top_n(-300, wt = p_val) %>% pull(gene, avg_log2FC)
+
+de_m = de_m %>% 
+  #mutate(delabel = case_when(gene %in% c(de_m_up, de_m_down) ~ gene)) %>%
+  mutate(delabel = case_when(gene %in% c(de_up_diff, de_down_diff) ~ gene)) %>%
+  mutate(diffexp = case_when(gene %in% de_m_up ~ "UP", gene %in% de_m_down ~ "DOWN", TRUE ~ "NO"))
+
+svglite("output/figures/mousevol.svg", width = 14, height = 16.5)
+ggplot(data = de_m, aes(x = avg_log2FC, y = -log10(p_val), col = diffexp, label = delabel)) +
+        geom_point() +
+        geom_text_repel(max.overlaps = 10, size = 8) +
+        scale_color_manual(values = c("black","#E53935")) +
+        geom_vline(xintercept = c(-2.5, 2.5), col = "#E53935", linetype = "dashed") +
+        geom_hline(yintercept = -log10(0.01), col = "#E53935", linetype = "dashed") +
+        labs(x = "average log2 fold-change", y = "-log10(p value)") +
+        theme_classic(base_size = 14) +
+        theme(legend.position = "none",
+              text = element_text(size = 30))
+dev.off()
+
+```
+## GO analysis
+```{r}
+
+geneList = de_m %>% filter(gene %in% setdiff(de_m_up, de_m_ref_up)) %>% arrange(desc(avg_log2FC)) %>% pull(avg_log2FC)
+names(geneList) = de_m %>% filter(gene %in% setdiff(de_m_up, de_m_ref_up)) %>% arrange(desc(avg_log2FC)) %>% pull(gene)
+  
+gse = gseGO(geneList = geneList, 
+          ont = "BP", 
+          keyType = "SYMBOL", 
+          minGSSize = 30, 
+          maxGSSize = 800, 
+          pvalueCutoff = 1, 
+          verbose = TRUE, 
+          OrgDb = org.Mm.eg.db, 
+          pAdjustMethod = "none")
+
+gse = simplify(gse, cutoff = 0.7, by = "p.adjust", select_fun = min)
+
+enrichplot::dotplot(gse, showCategory = 15) +
+  scale_y_discrete(labels = function(x) str_wrap(x, width = 50))
+
+enrichplot::dotplot(gse, showCategory = 15, split = ".sign") +
+  facet_grid(~.sign) +
+  scale_y_discrete(labels = function(x) str_wrap(x, width = 50))
+
+```
+## MGEnrichment 
+```{r}
+
+mouse.master3 = mouse.master3 %>% mutate_all(na_if,"")
+mouse.master3 = mouse.master3[complete.cases(mouse.master3),]
+
+genesets = split(mouse.master3$mgi_symbol, mouse.master3$listname)
+genesets = genesets[lapply(genesets, length) > 30]
+
+signatures = list(mouse_patch_seq = de_m_up, mouse_reference = de_m_ref_up)
+#signatures = list(mouse_patch_seq = de_m_up[1:100], mouse_reference = de_m_ref_up[1:100])
+
+hyp_obj = hypeR(signatures, 
+                genesets, 
+                test = "hypergeometric", 
+                background = 33882,
+                plotting = T)
+
+res = data.frame(hyp_obj$data$mouse_patch_seq$data[,-c(2:4,6,7)],
+                 patch_fdr = hyp_obj$data$mouse_patch_seq$data[,3],
+                 ref_fdr = hyp_obj$data$mouse_reference$data[,3])
+tmp = mouse.master3 %>% dplyr::rename(label = listname) %>% dplyr::select(-c("ensembl_gene_id","mgi_symbol","entrezgene_id")) %>% unique()
+res = left_join(res, tmp, by = "label")
+rownames(res) = NULL
+
+plot_res = res %>%
+  #filter(source == "Keren-Shaul et al., 2017") %>%
+  filter(!patch_fdr == 0, !ref_fdr == 0) %>%
+  slice_max(order_by = -patch_fdr, n = 20) 
+
+svglite("output/figures/mouse_terms_Jao.svg", width = 8, height = 6)
+plot_enrichments_1(plot_res)
+dev.off()
+
+```
+
+## Friedman
+```{r}
+
+signatures = list(patch_seq = de_m_up, 
+                  reference = de_m_ref_up)
+
+f_modules = read.csv(file = here("local","Friedman_2018","mouse_course.csv")) %>%
+  dplyr::rename(genes = Gene.Symbol)
+
+genesets = split(f_modules$gene, f_modules$Module)
+names(genesets)[5:6] = c("Neurodegeneration-\nRelated (126)", "Neutrophil,\nMonocyte (27)")
+
+hyp_obj = hypeR(signatures, genesets, test = "hypergeometric", plotting = T)
+res = rbind(hyp_obj$data$patch_seq$data, hyp_obj$data$reference$data)
+res$group = c(rep("patchseq",7), rep("reference",7))
+rownames(res) = NULL
+order = res %>% filter(group == "patchseq") %>% arrange(desc(fdr)) %>% pull(label)
+res$label = factor(res$label, levels = order)
+
+svglite("output/figures/mouse_terms_Friedman.svg", width = 10, height = 8, scaling = 1)
+plot_enrichments_2(res, "Friedman et al. 2018")
+dev.off()
+
+```
+
+## Olah
+```{r}
+
+signatures = list(patch_seq = de_m_up, 
+                  reference = de_m_ref_up)
+
+o_clusters = read.csv(file = here("local","Olah_2020","Olah_cluster_de.csv"))
+o_clusters$up_type = as.factor(o_clusters$up_type)
+o_clusters = filter(o_clusters, num_down_types > 3)
+
+#mouse_list = .convertHumanGeneList(o_clusters$gene)
+names(mouse_list)[1] = "gene"
+o_clusters = merge(o_clusters, mouse_list, by = "gene") %>%
+  dplyr::select(-gene) %>%
+  dplyr::rename(gene = MGI.symbol) %>% 
+  relocate(gene, .before = up_type)
+
+o_clusters = o_clusters %>%
+  mutate(temp = "Cluster") %>%
+  unite(up_type, c("temp","up_type"), sep = " ") %>%
+  group_by(up_type) %>%
+  mutate(temp = paste0(" (",n(),")")) %>%
+  unite(up_type, c("up_type","temp"), sep = "")
+table(o_clusters$up_type)
+
+genesets = split(o_clusters$gene, o_clusters$up_type)
+
+hyp_obj = hypeR(signatures, genesets, test = "hypergeometric", plotting = T)
+res = rbind(hyp_obj$data$patch_seq$data, hyp_obj$data$reference$data)
+res$group = c(rep("patchseq",8), rep("reference",8))
+rownames(res) = NULL
+order = res %>% filter(group == "patchseq") %>% arrange(desc(fdr)) %>% pull(label)
+res$label = factor(res$label, levels = order)
+
+svglite("output/figures/mouse_terms_Olah.svg", width = 9, height = 8)
+plot_enrichments_2(res, "Olah et al. 2020")
+dev.off()
+
+```
+## DAMs and Early/Late
+```{r}
+
+signatures = list(patch_seq = de_m_up, 
+                  reference = de_m_ref_up)
+
+early_cluster3 = read.csv(file = here("local","Mathys_2017","SCDE_Cluster2versus3.csv")) %>% filter(cZ < -5) %>% pull(X)
+early_cluster7 = read.csv(file = here("local","Mathys_2017","SCDE_Cluster2versus7.csv")) %>% filter(cZ < -5) %>% pull(X)
+late_cluster6 = read.csv(file = here("local","Mathys_2017","SCDE_Cluster2versus6.csv")) %>% filter(cZ < -5) %>% pull(X)
+dams = mouse.master3 %>% filter(listname == "DAM > HOM MG") %>% pull(mgi_symbol)
+
+genesets = list(early_cluster3, early_cluster7, late_cluster6, dams)
+names(genesets) = c("Early response\n(Cluster 3)", "Early response\n(Cluster 7)", "Late response", "Upregulated\nin DAM")
+
+hyp_obj = hypeR(signatures, genesets, test = "hypergeometric", plotting = T)
+res = rbind(hyp_obj$data$patch_seq$data, hyp_obj$data$reference$data)
+res$group = c(rep("patchseq", nrow(res)/2), rep("reference", nrow(res)/2))
+rownames(res) = NULL
+order = res %>% filter(group == "patchseq") %>% arrange(desc(fdr)) %>% pull(label)
+res$label = factor(res$label, levels = order)
+
+svglite("output/figures/mouse_terms_Mathys.svg", width = 9, height = 8)
+plot_enrichments_2(res, "Mathys et al. 2017\nKeren-Shaul et al. 2017")
+dev.off()
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# appendix
+
+```{r}
+# load in Olah 2020 data
+matrix = fread(here("local","Olah_2020","SupplementaryData14.csv"), header = T, data.table = F) %>%
+  column_to_rownames(var = "V1")
+matrix = matrix[grep("^LOC|^MT-|^RP[0-9]|^BC[0-9]|-PS",rownames(matrix),invert=T),]
+matrix = matrix[,which(colSums(matrix)>=1000)]
+metadata = fread(here("local","Olah_2020","SupplementaryData15.csv"), header = T, data.table = F)
+metadata$cluster_label = as.factor(metadata$cluster_label)
+rownames(metadata) = metadata$sample_id
+
+```
+
+```{r}
+
+# limma-voom
+d0 = DGEList(counts = matrix_h, group = metadata_h$Microglia)
+d0 = calcNormFactors(d0)
+design = model.matrix(~ metadata_h$Microglia)
+
+keep = filterByExpr(d0, design = design)
+d = d0[keep, , keep.lib.sizes = FALSE]
+
+vm = voom(d, design = design, plot = TRUE)
+#vm = voomWithQualityWeights(d, design = design, normalize.method = "none",  plot = TRUE)
+
+fit = lmFit(vm, design = design)
+fit = eBayes(fit, robust = F)
+tt = topTable(fit, n = Inf, adjust.method = "BH")
+
+summary(decideTests(fit, adjust.method = "fdr", p.value = 0.01))
+
+#limma::plotMDS(d, col = as.numeric(as.factor(metadata_h$high_micro)), pch = 19)
+hist(tt$P.Value, 50)
+hist(tt$adj.P.Val, 50)
+plotMD(fit)
+median(tt$P.Value)
+
+ggplot(tt, aes(x = logFC, y=-log10(adj.P.Val))) + geom_point() + theme_minimal()
+
+de_h = as.data.frame(tt)
+write.csv(de_h, file = "./output/de_h.csv")
+
+```
+
+```{r}
+
+metadata_h_ref = metadata_h_ref %>% mutate(condition = case_when(class_label == "Glutamatergic" ~ "neuro", class_label == "Non-neuronal" ~ "micro"))
+metadata_h_ref$condition = factor(metadata_h_ref$condition, levels = c("neuro","micro"))
+all(rownames(metadata_h_ref) %in% colnames(matrix_h_ref))
+
+celltype = as.factor(metadata_h_ref$cluster_label)
+names(celltype) = colnames(matrix_h_ref)
+
+matrix_h_ref_bulk = .getPseudobulk(mat = matrix_h_ref, celltype = celltype)
+metadata_h_ref_bulk = data.frame(condition = c("neuro","neuro","neuro","neuro","neuro","micro"))
+rownames(metadata_h_ref_bulk) = colnames(matrix_h_ref_bulk)
+
+# limma-voom
+d0 = DGEList(counts = matrix_h_ref_bulk, group = metadata_h_ref_bulk$condition)
+d0 = calcNormFactors(d0)
+design = model.matrix(~ metadata_h_ref_bulk$condition)
+
+keep = filterByExpr(d0, design = design)
+d = d0[keep, , keep.lib.sizes = FALSE]
+
+vm = voom(d, design = design, plot = TRUE)
+#vm = voomWithQualityWeights(d, design = design, normalize.method = "none",  plot = TRUE)
+
+fit = lmFit(vm, design = design)
+fit = eBayes(fit, robust = F)
+tt = topTable(fit, n = Inf, adjust.method = "BH")
+
+summary(decideTests(fit,adjust.method = "fdr", p.value = 0.05))
+
+#limma::plotMDS(d, col = as.numeric(as.factor(metadata_h$high_micro)), pch = 19)
+hist(tt$P.Value, 50)
+hist(tt$adj.P.Val, 50)
+plotMD(fit)
+median(tt$P.Value)
+
+ggplot(tt, aes(x = logFC, y=-log10(adj.P.Val))) + geom_point() + theme_minimal()
+
+de_h_ref = as.data.frame(tt)
+write.csv(de_h_ref, file = "./output/de_h_ref.csv")
+
+```
+
+```{r}
+# DEseq2 stock 
+dds = DESeqDataSetFromMatrix(countData = matrix_h, colData = data.frame(condition = metadata_h$condition), design = ~ condition)
+dds = DESeq(dds)
+res = results(dds)
+
+plotDispEsts(dds)
+plotMA(res)
+summary(res)
+
+res = as.data.frame(res)
+ggplot(res, aes(x = log2FoldChange, y=-log10(padj))) + geom_point() + theme_minimal()
+
+```
+
+```{r}
+
+#glmGamPoi
+metadata_h = metadata_h %>% mutate(condition = case_when(high_micro == TRUE ~ "high", high_micro == FALSE ~ "low"))
+metadata_h$condition = factor(metadata_h$condition, levels = c("low","high"))
+all(rownames(metadata_h) %in% colnames(matrix_h))
+
+sce = SingleCellExperiment(list(counts = matrix_h), colData = metadata_h)
+drop = which(apply(edgeR::cpm(sce), 1, max) < 5)
+sce = sce[-drop,] 
+counts(sce) = as.matrix(counts(sce))
+
+fit = glm_gp(sce, design = ~ condition, reference_level = "low")
+
+res = test_de(fit, contrast = "conditionhigh", pseudobulk_by = paste0(condition, "-", donor_id), pval_adjust_method = "BH")
+res$lfc = ifelse(abs(res$lfc) > 20, sign(res$lfc) * NA, res$lfc)
+res = res[complete.cases(res),]
+
+hist(res$pval, 50)
+hist(res$adj_pval, 50)
+
+ggplot(res, aes(x = lfc, y=-log10(adj_pval))) + geom_point() + theme_minimal()
+
+```
+
+```{r}
+
+# glmGamPoi
+metadata_h_ref = metadata_h_ref %>% mutate(condition = case_when(class_label == "Glutamatergic" ~ "neuro", class_label == "Non-neuronal" ~ "micro"))
+metadata_h_ref$condition = factor(metadata_h_ref$condition, levels = c("neuro","micro"))
+all(rownames(metadata_h_ref) %in% colnames(matrix_h_ref))
+
+sce = SingleCellExperiment(list(counts = matrix_h_ref), colData = metadata_h_ref)
+drop = which(apply(edgeR::cpm(sce), 1, max) < 5)
+sce = sce[-drop,] 
+counts(sce) = as.matrix(counts(sce))
+
+fit = glm_gp(sce, design = ~ condition, reference_level = "neuro")
+
+res = test_de(fit, contrast = "conditionmicro", pseudobulk_by = paste0(condition, "-", external_donor_name_label), pval_adjust_method = "BH")
+res$lfc = ifelse(abs(res$lfc) > 20, sign(res$lfc) * NA, res$lfc)
+res = res[complete.cases(res),]
+
+hist(res$pval, 50)
+hist(res$adj_pval, 50)
+
+ggplot(res, aes(x = lfc, y=-log10(adj_pval))) + geom_point() + theme_minimal()
+
+
+```
+
+```{r}
+
+# edgeR QLF
+metadata_h = metadata_h %>% mutate(condition = case_when(high_micro == TRUE ~ "high", high_micro == FALSE ~ "low"))
+metadata_h$condition = factor(metadata_h$condition, levels = c("low","high"))
+all(rownames(metadata_h) %in% colnames(matrix_h))
+
+sce = SingleCellExperiment(list(counts = matrix_h), colData = metadata_h, rowData = rownames(matrix_h))
+sce = aggregateAcrossCells(sce, id = colData(sce)[, c("condition", "donor_id")])
+
+dge = DGEList(matrix_h, group = metadata_h$condition)
+
+keep = filterByExpr(dge, group = metadata_h$condition)
+dge = dge[keep, , keep.lib.sizes=FALSE]
+
+dge = calcNormFactors(dge)
+design = model.matrix(~ metadata_h$condition)
+dge = estimateDisp(dge, design = design)
+fit = glmQLFit(dge, design = design, robust = FALSE)
+qlf = glmQLFTest(fit)
+tt = topTags(qlf, n = Inf)
+
+plotBCV(dge)
+plotQLDisp(fit)
+hist(tt$table$PValue, 50)
+hist(tt$table$FDR, 50)
+limma::plotMDS(dge, col = as.numeric(as.factor(metadata_h$condition)), pch = 19)
+plotSmear(qlf)
+
+de_h = as.data.frame(tt$table)
+ggplot(de_h, aes(x = logFC, y=-log10(FDR))) + geom_point() + theme_minimal()
+
+write.csv(de_h, file = "./output/de_h.csv")
+  
+```
+
+```{r}
+
+# edgeR QLF
+metadata_h_ref = metadata_h_ref %>% mutate(condition = case_when(class_label == "Glutamatergic" ~ "neuro", class_label == "Non-neuronal" ~ "micro"))
+metadata_h_ref$condition = factor(metadata_h_ref$condition, levels = c("neuro","micro"))
+all(rownames(metadata_h_ref) %in% colnames(matrix_h_ref))
+
+dge = DGEList(matrix_h_ref, group = metadata_h_ref$condition)
+
+keep = filterByExpr(dge, group = metadata_h_ref$condition)
+dge = dge[keep, , keep.lib.sizes=FALSE]
+
+dge = calcNormFactors(dge)
+design = model.matrix(~ metadata_h_ref$condition)
+dge = estimateDisp(dge, design = design)
+fit = glmQLFit(dge, design = design, robust = FALSE)
+qlf = glmQLFTest(fit)
+tt = topTags(qlf, n = Inf)
+
+plotBCV(dge)
+plotQLDisp(fit)
+hist(tt$table$PValue, 50)
+hist(tt$table$FDR, 50)
+limma::plotMDS(dge, col = as.numeric(as.factor(metadata_h_ref$condition)), pch = 19)
+plotSmear(qlf)
+
+de_h_ref = as.data.frame(tt$table)
+ggplot(de_h_ref, aes(x = logFC, y=-log10(FDR))) + geom_point() + theme_minimal()
+
+write.csv(de_h_ref, file = "./output/de_h_ref.csv")
+
+```
+
+```{r}
+de_h = read.csv(file = "./output/de_h.csv")
+de_h_ref = read.csv(file = "./output/de_h_ref.csv")
+
+annotationTable = read.csv(file = here("local","Friedman_2018","human_course.csv")) %>%
+  dplyr::rename(geneID = Entrez.Gene.ID, termName = Module) %>%
+  mutate(termID = paste0("term-", as.numeric(factor(termName)))) %>%
+  mutate(dbName = "Friedman_2018") %>%
+  mutate(description = termName) %>%
+  dplyr::select(c("geneID","termID","termName","description","dbName"))
+
+allGenes = intersect(unique(de_h[complete.cases(de_h),]$gene), unique(de_h_ref[complete.cases(de_h),]$gene))
+symbol2EntrezID = createIDConverter("Homo.sapiens","SYMBOL","ENTREZID")
+referenceSet = symbol2EntrezID(allGenes)
+
+buildSetCollection(annotationTable, referenceSet, maxSetSize = 500)
+
+ls("package:GeneSets.Homo.sapiens")
+
+referenceSet = sprintf("gene_%02d", 1:50)
+geneSets = lapply(1:9, function(i) sample(referenceSet[((i-1)*5):((i+1)*5)], 5))
+annotationTable = data.frame(termID=sprintf("set_%02d", rep(1:9, each=5)), 
+        geneID=unlist(geneSets),
+        termName = sprintf("dummy gene set %d", rep(1:9, each=5)),
+        dbName = "dummyDB",
+        description = "A dummy gene set DB for testing purposes")
+
+```
+
+
+
+
+
+
+
+
+
