@@ -46,7 +46,7 @@ suppressPackageStartupMessages({
 ```{r load_data_patch}
 
 # set species to run analyses on "human" or "mouse"
-spcs = "human"  
+spcs = "mouse"  
 
 # set TRUE to download mouse patch-seq expression data
 if(file.exists("./local/20200513_Mouse_PatchSeq_Release_cpm.v2/20200513_Mouse_PatchSeq_Release_cpm.v2.csv") == FALSE){
@@ -142,8 +142,8 @@ if(file.exists("./local/mouse_VISp_FACs/mouse_VISp_2018-06-14_readme.txt") == FA
 
 # Read in the data
 if(spcs == "mouse"){
-  Samp.dat = read_feather(here("local","FACs","mouse","anno.feather")) 
-  Expr.dat = feather(here("local","FACs","mouse","data.feather")) # FPKM
+  Samp.dat = read_feather(here("local","FACs_processed","mouse","anno.feather")) 
+  Expr.dat = feather(here("local","FACs_processed","mouse","data.feather")) # FPKM
   Samp.dat = Samp.dat[match(Expr.dat$sample_id,Samp.dat$sample_id),]
   
   # Define a second annotation and data file with all clusters
@@ -178,7 +178,7 @@ if(spcs == "mouse"){
 ```{r load_human}
 if(spcs == "human"){
   Samp.dat = fread(file = "./local/Human Multiple Cortical Areas SMART-seq/metadata.csv", data.table = F) %>% 
-    #filter(region_label == "MTG") %>%
+    filter(region_label == "MTG") %>%
     filter(!(subclass_label == "" | is.na(subclass_label))) %>%
     relocate(subclass_label, .after = sample_name)
   rownames(Samp.dat) = Samp.dat$sample_name
@@ -281,7 +281,7 @@ Define which subclass each patch-seq cell is assigned to, based on maximal marke
 nm  = names(markers)
 isOn = substr(nm,nchar(nm)-2,nchar(nm))=="_on"
 useThese = nm[isOn&(!is.element(nm,paste0(nm,"_on")))]
-useThese = setdiff(useThese,c("CR_on","Meis2_on"))        # These types are rare and unlikely to be actually patched.
+useThese = setdiff(useThese,c("CR_on","Meis2_on")) # These types are rare and unlikely to be actually patched.
 
 subclassDat = calcContamAllTypes(pat_df, markers[useThese])  # Identify subclass based on marker gene expression
 subclass = colnames(subclassDat)[subclassDat %>% apply(1,which.max)]
@@ -377,6 +377,7 @@ plotMarkerHeatmap2 = function(markerlist, expr_matrix, show_legend = T, show_ann
                                     breaks = breaksList, 
                                     color = colorRampPalette(rev(RColorBrewer::brewer.pal(n = 11, name = "RdYlBu")))(length(breaksList)),
                                     border_color = NA,
+                                    fontsize = 18,
                                     legend = show_legend,
                                     annotation_legend = show_annotation_legend
   )
@@ -449,10 +450,10 @@ plotMarkerBoxplots = function(patch_seq_contam_df,
     rownames_to_column(var = "sample") %>%
     pivot_longer(cols = c(2,3), names_to = "Markers", values_to = "expression")
   plot_df$expression = log2(plot_df$expression +1)
-  plot_df$Markers = factor(plot_df$Markers, levels = c("Macrophage","Sst_on"), labels = c("Microglia","Sst on"))
+  plot_df$Markers = factor(plot_df$Markers, levels = c("Macrophage", "Sst_on"), labels = c("Microglia", "SST Neurons")) # check
   plot_df$group = factor(plot_df$group, 
                          levels = c("ref_on","ref_off","pat"), 
-                         labels = c("reference single-cell\nSST neurons","reference single-cell\nmicroglia","patchseq\nSST neurons"))
+                         labels = c("reference\nSST neurons","reference\nmicroglia","patchseq\nSST neurons"))
   
   dodge = position_dodge(width = 0.4)
   pal = colorRampPalette(rev(brewer.pal(n = 11, name = "RdYlBu")))(20)
@@ -462,7 +463,9 @@ plotMarkerBoxplots = function(patch_seq_contam_df,
     geom_boxplot(width = .1, outlier.color = NA, position = dodge) +
     scale_fill_manual(values = c(pal[18], pal[3])) +
     labs(x = "", y = "Marker Expression (Log2(CPM+1)") +
-    theme_classic()
+    theme_classic() +
+    theme(text = element_text(size = 24),
+          axis.text.x = element_text(size = 24))
 
   return(p)
 }
@@ -486,19 +489,19 @@ if(spcs=="human") plot_cell_types = c('Superficial.Layers_on','Microglia','Astro
 if(spcs=="mouse") plot_cell_types = c('Sst_on','Macrophage','Astro')
 plot_marker_list = c(markers[plot_cell_types])
 
-if(spcs=="human") svglite("output/figures/heatmap_human.svg", width = 8.88, height = 6.88)
-if(spcs=="mouse") svglite("output/figures/heatmap_mouse.svg", width = 8.88, height = 6.88)
+# if(spcs=="human") svglite("output/figures/heatmap_human.svg", width = 12, height = 8)
+# if(spcs=="mouse") svglite("output/figures/heatmap_mouse.svg", width = 12, height = 8)
 
-#png("output/figures/heatmap_human.png", units = "in", width = 8.88, height = 6.88, res = 2000)
+png("output/figures/heatmap_mouse.png", units = "in", width = 10, height = 10, res = 100)
   plotMarkerHeatmap2(markerlist = plot_marker_list, # named list of lists defining which markers to show
                      expr_matrix = pat_plotting_df, # data frame that combines gene expr with metadata, each row is a single-cell
                      show_legend = T, # show color bar
                      show_annotation_legend = F,
                      show_cell_labels = F, # show sample names in heatmap (defined by rownames of expr_matrix)
-                     num_markers = 20
+                     num_markers = 16
                      )
   #grid.text(plot_cell_types, x=c(0.10,0.36,0.67),y=c(0.97,0.97,0.97), gp=gpar(fontsize=9, col="white", alpha = 1.0, fontface ="bold"))
-#dev.off()
+dev.off()
 
 ```
 
@@ -519,7 +522,7 @@ qcMetrics = qcMetrics  %>%
 high_samps = qcMetrics %>% filter(high_micro == TRUE) %>% pull(sample_id)
 
 #svglite("output/figures/histcut_mouse.svg", width = 8.5, height = 6.88)
-  ggplot(qcMetrics, aes(Microglia))+
+  ggplot(qcMetrics, aes(Macrophage))+
     geom_histogram(bins = 25, fill = "royalblue3") +
     geom_vline(xintercept = cut, linetype = "dashed", size = 1) +
     #geom_text(aes(0, cut, label = paste("contam_score = ", cut, sep = ""), vjust = -20, hjust = -5)) +
@@ -532,7 +535,8 @@ high_samps = qcMetrics %>% filter(high_micro == TRUE) %>% pull(sample_id)
 
 ```{r plot}
 
-samps = qcMetrics %>% filter(contam_type == "Sst_on") %>% pull(sample_id) #check
+if(spcs=="human") samps = qcMetrics %>% filter(contam_type == "Superficial.Layers_on") %>% pull(sample_id)
+if(spcs=="mouse") samps = qcMetrics %>% filter(contam_type == "Sst_on") %>% pull(sample_id) 
 
 pat_contam = calcContamAllTypes(t(datPat_all+1), markers, colwise = F) %>% filter(rownames(.) %in% pat_samps)
 pat_contam = pat_contam %>% 
@@ -575,8 +579,8 @@ plotPatchSeqDissocCellMarkerExpr(patch_seq_contam_df = pat_contam,
                                  off_type = 'Macrophage') #check
 dev.off()
 
-if(spcs=="human") svglite("output/figures/facsvspat_box_human.svg", width = 8, height = 6.8)
-if(spcs=="mouse") svglite("output/figures/facsvspat_box_mouse.svg", width = 8, height = 6.8)
+if(spcs=="human") svglite("output/figures/facsvspat_box_human.svg", width = 10, height = 10)
+if(spcs=="mouse") svglite("output/figures/facsvspat_box_mouse.svg",  width = 10, height = 10)
 plotMarkerBoxplots(patch_seq_contam_df = pat_contam,
                    dissoc_cell_contam_df = facs_contam, 
                    on_type = 'Sst_on', #check

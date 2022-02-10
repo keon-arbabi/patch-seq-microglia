@@ -241,14 +241,14 @@ p1 = DimPlot(seu_h, reduction = "umap", label = F, raster = F, shuffle = T) +
 
 pal = colorRampPalette(rev(brewer.pal(n = 11, name = "RdYlBu")))(10)
 
-p2 = FeaturePlot(seu_h, features = "Microglia", pt.size = 2) +
+p2 = FeaturePlot(seu_h, features = "Microglia", pt.size = 3) +
   scale_color_gradientn(colors = pal, labels = seq(0,1,0.2), breaks = seq(0,1,0.2)) +
   guides(color = guide_colourbar(barwidth = 0.5, barheight = 10)) +
   labs(x = "UMAP 1", y = "UMAP 2", title = "", color = "Microglial\nContamination\nScore") + 
   theme_classic() +
   theme(text = element_text(size = 24))
 
-svglite("output/figures/umap_human.svg", width = 11, height = 8)
+svglite("output/figures/umap_human.svg", width = 11, height = 10)
 p2
 dev.off()
 
@@ -282,14 +282,14 @@ p1 = DimPlot(seu_m, reduction = "umap", label = F, raster = F, shuffle = T) +
 
 pal = colorRampPalette(rev(brewer.pal(n = 11, name = "RdYlBu")))(10)
 
-p2 = FeaturePlot(seu_m, features = "Microglia") +
+p2 = FeaturePlot(seu_m, features = "Microglia", pt.size = 1) +
   scale_color_gradientn (colors = pal, labels = seq(0,1,0.2), breaks = seq(0,1,0.2)) +
   guides(color = guide_colourbar(barwidth = 0.5, barheight = 10)) +
   labs(x = "UMAP 1", y = "UMAP 2", title = "", color = "Microglial\nContamination\nScore") + 
   theme_classic() +
   theme(text = element_text(size = 24))
 
-svglite("output/figures/umap_mouse.svg", width = 11, height = 8)
+svglite("output/figures/umap_mouse.svg", width = 11, height = 10)
 p2
 dev.off()
 
