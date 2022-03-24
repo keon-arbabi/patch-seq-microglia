@@ -1,5 +1,5 @@
 ---
-title: "scratch"
+title: "2-variable-analysis"
 author: "Keon Arbabi"
 date: "19/01/2022"
 output: html_document
@@ -117,8 +117,11 @@ metadata_h$Microglia = range01(metadata_h$Microglia)
 metadata_h = merge(metadata_h, patho_scores_h, by = "donor_id") 
 metadata_h = metadata_h %>% 
   relocate(Iba1.Cortex, .after = "Pvalb") %>% 
-  mutate(Iba1.bin = case_when(Iba1.Cortex < 1 ~ "low",
-                              Iba1.Cortex >= 1 ~ "high"))
+  mutate(Iba1.bin = case_when(Iba1.Cortex <= 1 ~ "low",
+                              Iba1.Cortex > 1 ~ "high")) %>%
+  relocate(GFAP.Cortex, .after = "Iba1.bin") %>% 
+  mutate(Gfap.bin = case_when(GFAP.Cortex <= 1 ~ "low",
+                              GFAP.Cortex > 1 ~ "high"))
 metadata_h = metadata_h[colSums(!is.na(metadata_h))>0]
 rownames(metadata_h) = metadata_h$cell_specimen_name
 
@@ -141,15 +144,7 @@ p1 = metadata_h %>% ggplot(aes(x = reorder(cluster_label, cell_soma_normalized_d
         text = element_text(size = font_size)) +
   stat_compare_means(method = "kruskal.test", label.y = 1, label.x = 1, size = 5)
 
-p2 = metadata_h %>% ggplot(aes(x = reorder(Iba1.bin, Iba1.Cortex), y = Microglia)) + 
-  geom_boxplot(outlier.color = "NA", width = 0.6, lwd = 1.0, color = "#114357") + 
-  geom_jitter(alpha = 0.5, width = 0.25, shape = 16, size = 1.5, color = "#114357") +
-  labs(x = "Iba1 Cortex", y = "") +
-  theme_classic() +
-  theme(text = element_text(size = font_size)) +
-  stat_compare_means(method = "wilcox", label.y = 1, label.x = 0.8, size = 5)
-
-p3 = metadata_h %>% ggplot(aes(x = cell_soma_normalized_depth, y = Microglia)) + 
+p2 = metadata_h %>% ggplot(aes(x = cell_soma_normalized_depth, y = Microglia)) + 
   geom_point(size = 1.5, shape = 16, color = "#114357") + 
   geom_smooth(method = "lm", se = FALSE, color = "#114357", lwd = 1.0) +
   labs(x = "Cell Soma Normalized\nDepth (N = 96)", y = "") +
@@ -157,10 +152,27 @@ p3 = metadata_h %>% ggplot(aes(x = cell_soma_normalized_depth, y = Microglia)) +
   theme(text = element_text(size = font_size)) +
   stat_cor(method = "spearman", label.y = 1, size = 5)
 
-svglite("output/figures/univar_human.svg", width = 17, height = 8)
-plot_grid(p1, p3, p2, nrow = 1, align = "h", rel_widths = c(1.5,1,1))
+p3 = metadata_h %>% ggplot(aes(x = reorder(Iba1.bin, Iba1.Cortex), y = Microglia)) + 
+  geom_boxplot(outlier.color = "NA", width = 0.6, lwd = 1.0, color = "#114357") + 
+  geom_jitter(alpha = 0.5, width = 0.25, shape = 16, size = 1.5, color = "#114357") +
+  labs(x = "IBA1 Cortex", y = "") +
+  theme_classic() +
+  theme(text = element_text(size = font_size)) +
+  stat_compare_means(method = "wilcox", label.y = 1, label.x = 0.8, size = 5)
+
+p4 = metadata_h %>% drop_na(Gfap.bin) %>%
+  ggplot(aes(x = reorder(Gfap.bin, GFAP.Cortex), y = Microglia)) + 
+  geom_boxplot(outlier.color = "NA", width = 0.6, lwd = 1.0, color = "#114357") + 
+  geom_jitter(alpha = 0.5, width = 0.25, shape = 16, size = 1.5, color = "#114357") +
+  labs(x = "GFAP Cortex", y = "") +
+  theme_classic() +
+  theme(text = element_text(size = font_size)) +
+  stat_compare_means(method = "wilcox", label.y = 1, label.x = 0.8, size = 5)
+
+svglite("output/figures/univar_human.svg", width = 20, height = 8)
+plot_grid(p1, p2, p3, p4, nrow = 1, align = "h", rel_widths = c(1.5,1,1,1))
 dev.off()
-  
+
 ```
 
 ## mixed effects models 
@@ -171,14 +183,14 @@ metadata_h_filt = metadata_h %>%
   mutate(age = as.numeric(gsub(" yrs","",age))) %>% na_if("") %>% na.omit()
 
 continous_vars = c("Microglia","age","cell_soma_normalized_depth")
-categorical_vars = c("hemisphere","biological_sex","medical_conditions","cluster_label","Iba1.bin","donor_id")
+categorical_vars = c("hemisphere","biological_sex","medical_conditions","cluster_label","Iba1.bin","Gfap.bin","donor_id")
 metadata_h_filt[,categorical_vars] = lapply(metadata_h_filt[,categorical_vars], factor)
 
 #ggpairs(metadata_h_filt[c(continous_vars,categorical_vars)], cardinality_threshold = 30)
 #categorical_compare(metadata_h_filt[,categorical_vars])
 
 # full model
-form_full = Microglia ~ biological_sex + scale(age) + medical_conditions + scale(cell_soma_normalized_depth) + cluster_label + Iba1.bin + (1|donor_id)
+form_full = Microglia ~ biological_sex + scale(age) + medical_conditions + scale(cell_soma_normalized_depth) + cluster_label + Iba1.bin + Gfap.bin + (1|donor_id)
 fit_full = lmer(form_full, data = metadata_h_filt, REML = FALSE)
 random_rsq = r.squaredGLMM(fit_full)[2] - r.squaredGLMM(fit_full)[1]
 
@@ -190,7 +202,7 @@ form_null = Microglia ~ 1 + (1|donor_id)
 fit_null = lmer(form_null, data = metadata_h_filt, REML = FALSE)
 
 # partial model testing
-res = lapply(c('biological_sex', 'scale(age)', 'medical_conditions','scale(cell_soma_normalized_depth)', 'cluster_label', 'Iba1.bin'), function(V){
+res = lapply(c('biological_sex', 'scale(age)', 'medical_conditions','scale(cell_soma_normalized_depth)', 'cluster_label', 'Iba1.bin', "Gfap.bin"), function(V){
   
   form2 = gsub(V, "1", form_full, fixed = TRUE)
   form2 = as.formula(paste(form2[2], '~', form2[3]))
@@ -212,8 +224,8 @@ res = do.call(rbind, res)
 res = rbind(res, c("donor_id", rep(random_rsq, ncol(res)-1)))
 res[,2:7] = sapply(res[, 2:7], as.numeric)
 res$variable = factor(res$variable,
-                      levels = c("donor_id","cluster_label","scale(cell_soma_normalized_depth)","medical_conditions","scale(age)","Iba1.bin","biological_sex"),
-                      labels = c("Donor","T-type","Normalized depth","Medical condition","Age","Iba1 cortex","Biological sex"))
+                      levels = c("donor_id","cluster_label","scale(cell_soma_normalized_depth)","medical_conditions","scale(age)","Iba1.bin","Gfap.bin","biological_sex"),
+                      labels = c("Donor","T-type","Normalized depth","Medical condition","Age","IBA1 cortex","GFAP cotrex","Biological sex"))
 res$group = "human"
 res_h = res
 
@@ -249,7 +261,6 @@ metadata_m$cluster_label = factor(metadata_m$cluster_label,
 ## univariate plots 
 ```{r}
 
-
 p1 = metadata_m %>% ggplot(aes(x = reorder(cluster_label, cell_soma_normalized_depth), y = Microglia)) + 
   geom_boxplot(outlier.color = "NA", width = 0.6, lwd = 1.0, color = "#114357") +
   geom_jitter(alpha = 0.1, width = 0.25, shape = 16, size = 1.5, color = "#114357") +
@@ -267,7 +278,7 @@ p2 = metadata_m %>% ggplot(aes(x = cell_soma_normalized_depth, y = Microglia)) +
   theme(text = element_text(size = font_size)) +
   stat_cor(method = "spearman", label.y = 1, size = 5)
 
-svglite("output/figures/univar_mouse.svg", width = 12.15, height = 8)
+svglite("output/figures/univar_mouse.svg", width = 11.11, height = 8)
 plot_grid(p1, p2, nrow = 1, align = "h", rel_widths = c(1.5,1))
 dev.off()
   

@@ -10,7 +10,6 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 # load required packages
-
 ```{r load_libraries}
 # devtools::install_github("AllenInstitute/patchseqtools")
 # devtools::install_github('PavlidisLab/patchSeqQC')
@@ -23,9 +22,6 @@ suppressPackageStartupMessages({
   library(edgeR)
   library(DESeq2)
   library(MAST)
-  library(apeglm) 
-  library(scran)
-  library(glmGamPoi)
   library(SingleCellExperiment)
   library(hypeR)
   library(here)
@@ -49,7 +45,6 @@ suppressPackageStartupMessages({
 ```
 
 # functions
-
 ```{r}
 
 .reverselog_trans = function(base=exp(1)) {
@@ -156,7 +151,6 @@ plot_enrichments_2 = function(res, title){
 ```
 
 # load data
-
 ```{r load_data}
 
 # patch-seq human
@@ -210,7 +204,6 @@ rownames(metadata_m_ref) = metadata_m_ref$sample_name
 ```
 
 # seurat workflow 
-
 ```{r}
 
 seu_h = CreateSeuratObject(count = matrix_h, meta.data = metadata_h)
@@ -248,9 +241,9 @@ p2 = FeaturePlot(seu_h, features = "Microglia", pt.size = 3) +
   theme_classic() +
   theme(text = element_text(size = 24))
 
-svglite("output/figures/umap_human.svg", width = 11, height = 10)
+#svglite("output/figures/umap_human.svg", width = 11, height = 10)
 p2
-dev.off()
+#dev.off()
 
 ```
 
@@ -289,15 +282,13 @@ p2 = FeaturePlot(seu_m, features = "Microglia", pt.size = 1) +
   theme_classic() +
   theme(text = element_text(size = 24))
 
-svglite("output/figures/umap_mouse.svg", width = 11, height = 10)
+#svglite("output/figures/umap_mouse.svg", width = 11, height = 10)
 p2
-dev.off()
+#dev.off()
 
 ```
 
-
 # human functional analyses 
-
 ```{r}
 
 if(file.exists("./output/de_h.csv") == FALSE){
@@ -355,8 +346,8 @@ de_h_down = de_h %>% filter(avg_log2FC < -2.5, p_val < 0.01) %>% arrange(desc(av
 de_h_ref_up = de_h_ref %>% filter(avg_log2FC > 2.5, p_val < 0.01) %>% arrange(desc(avg_log2FC))  %>% pull(gene, avg_log2FC)
 de_h_ref_down = de_h_ref %>% filter(avg_log2FC < -2.5, p_val < 0.01) %>% arrange(desc(avg_log2FC)) %>% pull(gene, avg_log2FC)
 
-de_up_diff = de_h %>% filter(gene %in% setdiff(de_h_up, de_h_ref_up)) %>% top_n(300, wt = p_val) %>% pull(gene, avg_log2FC)
-de_down_diff = de_h %>% filter(gene %in% setdiff(de_h_down, de_h_ref_down)) %>% top_n(-300, wt = p_val) %>% pull(gene, avg_log2FC)
+de_up_diff = de_h %>% filter(gene %in% setdiff(de_h_up, de_h_ref_up)) %>% top_n(1000, wt = p_val) %>% pull(gene, avg_log2FC)
+de_down_diff = de_h %>% filter(gene %in% setdiff(de_h_down, de_h_ref_down)) %>% top_n(-1000, wt = p_val) %>% pull(gene, avg_log2FC)
 
 de_h = de_h %>% 
   #mutate(delabel = case_when(gene %in% c(de_h_up, de_h_down) ~ gene)) %>%
@@ -381,6 +372,7 @@ length(de_h_ref_up)
 length(de_up_diff)
 
 ```
+
 ## GO analysis
 ```{r}
 
@@ -407,6 +399,7 @@ enrichplot::dotplot(gse, showCategory = 15, split = ".sign") +
   scale_y_discrete(labels = function(x) str_wrap(x, width = 50))
 
 ```
+
 ## MGEnrichment 
 ```{r}
 
@@ -470,6 +463,7 @@ plot_enrichments_2(res, "Friedman et al. 2018")
 dev.off()
 
 ```
+
 ## Olah
 ```{r}
 
@@ -596,13 +590,13 @@ if(file.exists("./output/de_m_ref.csv") == FALSE){
 de_m = read.csv(file = "./output/de_m.csv")[,-1]
 de_m_ref = read.csv(file = "./output/de_m_ref.csv")[,-1]
 
-de_m_up = de_m %>% filter(avg_log2FC > 2.0, p_val < 0.01 | p_val == 0) %>% arrange(desc(avg_log2FC)) %>% pull(gene, avg_log2FC)
-de_m_down = de_m %>% filter(avg_log2FC > 2.0, p_val < 0.01 | p_val == 0) %>% arrange(desc(avg_log2FC)) %>% pull(gene, avg_log2FC)
-de_m_ref_up = de_m_ref %>% filter(avg_log2FC > 2.0, p_val < 0.01 | p_val == 0) %>% arrange(desc(avg_log2FC))  %>% pull(gene, avg_log2FC)
-de_m_ref_down = de_m_ref %>% filter(avg_log2FC > 2.0, p_val < 0.01 | p_val == 0) %>% arrange(desc(avg_log2FC)) %>% pull(gene, avg_log2FC)
+de_m_up = de_m %>% filter(avg_log2FC > 2.5, p_val < 0.01) %>% arrange(desc(avg_log2FC)) %>% pull(gene, avg_log2FC)
+de_m_down = de_m %>% filter(avg_log2FC < -2.5, p_val < 0.01) %>% arrange(desc(avg_log2FC)) %>% pull(gene, avg_log2FC)
+de_m_ref_up = de_m_ref %>% filter(avg_log2FC > 2.5, p_val < 0.01) %>% arrange(desc(avg_log2FC))  %>% pull(gene, avg_log2FC)
+de_m_ref_down = de_m_ref %>% filter(avg_log2FC < -2.5, p_val < 0.01) %>% arrange(desc(avg_log2FC)) %>% pull(gene, avg_log2FC)
 
-de_up_diff = de_m %>% filter(gene %in% setdiff(de_m_up, de_m_ref_up)) %>% top_n(300, wt = p_val) %>% pull(gene, avg_log2FC)
-de_down_diff = de_m %>% filter(gene %in% setdiff(de_m_down, de_m_ref_down)) %>% top_n(-300, wt = p_val) %>% pull(gene, avg_log2FC)
+de_up_diff = de_m %>% filter(gene %in% setdiff(de_m_up, de_m_ref_up)) %>% top_n(1000, wt = p_val) %>% pull(gene, avg_log2FC)
+de_down_diff = de_m %>% filter(gene %in% setdiff(de_m_down, de_m_ref_down)) %>% top_n(-1000, wt = p_val) %>% pull(gene, avg_log2FC)
 
 de_m = de_m %>% 
   #mutate(delabel = case_when(gene %in% c(de_m_up, de_m_down) ~ gene)) %>%
@@ -612,7 +606,7 @@ de_m = de_m %>%
 svglite("output/figures/mousevol.svg", width = 14, height = 16.5)
 ggplot(data = de_m, aes(x = avg_log2FC, y = -log10(p_val), col = diffexp, label = delabel)) +
         geom_point() +
-        geom_text_repel(max.overlaps = 10, size = 8) +
+        geom_text_repel(max.overlaps = 100, size = 8) +
         scale_color_manual(values = c("black","#E53935")) +
         geom_vline(xintercept = c(-2.5, 2.5), col = "#E53935", linetype = "dashed") +
         geom_hline(yintercept = -log10(0.01), col = "#E53935", linetype = "dashed") +
@@ -623,6 +617,7 @@ ggplot(data = de_m, aes(x = avg_log2FC, y = -log10(p_val), col = diffexp, label 
 dev.off()
 
 ```
+
 ## GO analysis
 ```{r}
 
@@ -649,6 +644,7 @@ enrichplot::dotplot(gse, showCategory = 15, split = ".sign") +
   scale_y_discrete(labels = function(x) str_wrap(x, width = 50))
 
 ```
+
 ## MGEnrichment 
 ```{r}
 
@@ -749,6 +745,7 @@ plot_enrichments_2(res, "Olah et al. 2020")
 dev.off()
 
 ```
+
 ## DAMs and Early/Late
 ```{r}
 
