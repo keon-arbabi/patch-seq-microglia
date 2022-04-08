@@ -9,6 +9,7 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+
 # load libraries 
 ```{r}
 suppressPackageStartupMessages({
@@ -45,7 +46,9 @@ range01 = function(x){(x-min(x))/(max(x)-min(x))}
 ## load data
 ```{r}
 # load summarized ephys features 
-ephys_h = read.csv(file = here("local","processed_ephys","human_ephys_features_berg.csv"))
+ephys_h = read.csv(file = here("data","processed_ephys","human_ephys_features_berg.csv"))
+# ephys_h = read.csv(url('https://raw.githubusercontent.com/AllenInstitute/patchseq_human_L23/master/data/human_mouse_ephys_all_0127.csv')) %>% 
+  # rename(ephys_session_id = specimen_id)
 # load microglia scores 
 qcMetrics_h = read.csv(file = here("output","human_qcMetrics.csv")) %>% dplyr::select(c(sample_id, Microglia))
 # load metadata
@@ -58,12 +61,122 @@ metadata_h = fread(file = here("data","patchseq","20200625_patchseq_metadata_hum
   left_join(., qcMetrics_h, by = "sample_id") %>%
   left_join(., ephys_h, by = "ephys_session_id")
 
+# load summarized ephys features 
+# patch-seq mouse
+qcMetrics_m = read.csv(file = here("output","mouse_qcMetrics.csv"))
+metadata_m = fread(file = here("data","patchseq","20200625_patchseq_metadata_mouse.csv"), data.table = FALSE) %>%
+  dplyr::rename(sample_id = transcriptomics_sample_id)
+metadata_m = merge(metadata_m, qcMetrics_m %>% dplyr::select(c("sample_id","major_type","contam_type","quality_score","Macrophage")), by = "sample_id")
+metadata_m = dplyr::rename(metadata_m, Microglia = Macrophage)
+metadata_m$Microglia = range01(metadata_m$Microglia)
+metadata_m = metadata_m[colSums(!is.na(metadata_m))>0]
+rownames(metadata_m) = metadata_m$sample_id
+metadata_m = metadata_m %>% mutate(cluster_label = str_extract(corresponding_AIT2.3.1_alias, "\\w+")) 
+leaveout = metadata_m %>% dplyr::count(cluster_label, sort = TRUE) %>% filter(n < 20) %>% pull(cluster_label) %>% unique()
+leaveout = c(leaveout,"",NA)
+metadata_m = metadata_m %>% filter(!cluster_label %in% leaveout) 
+metadata_m$cluster_label = factor(metadata_m$cluster_label, 
+                                  levels = c("Lamp5","Pvalb","Serpinf1","Sncg","Sst","Vip"),
+                                  labels = c("Lamp5","Pvalb","Serpinf1","Sncg","Sst","Vip"),
+                                  )
+
+ephys_m = read.csv(file = here("data","processed_ephys","mouse_ephys_features_gouwens.csv")) %>% 
+  mutate(new_ephys_ses_id = str_extract(ephys_session_id, pattern = "(\\d)+_icephys.nwb"), 
+         ephys_session_id = str_extract(new_ephys_ses_id, "(\\d)+") %>% as.numeric())
+# ephys_h = read.csv(url('https://raw.githubusercontent.com/AllenInstitute/patchseq_human_L23/master/data/human_mouse_ephys_all_0127.csv')) %>% 
+  # rename(ephys_session_id = specimen_id)
+# load microglia scores 
+# load metadata
+metadata_m = metadata_m %>%
+  dplyr::select(c(ephys_session_id, sample_id, donor_id, cell_soma_normalized_depth, cluster_label, Microglia)) %>%
+  left_join(., qcMetrics_m, by = "sample_id") %>%
+  left_join(., ephys_m, by = "ephys_session_id")
+
+```
+
+### generate some scatter plots to illustrate what might be happening with contamination
+```
+```{r}
+# subset to samples with cell soma normalized depth and microglia scores 
+# metadata_h = metadata_h[!is.na(metadata_h$cell_soma_normalized_depth),]
+metadata_h = metadata_h[!is.na(metadata_h$Microglia),]
+
+metadata_h %>% ggplot(aes(x = Microglia, y = threshold_v)) + 
+  geom_point() + 
+  facet_wrap(~cluster_label) + 
+  geom_smooth(method = "lm") 
+  
+metadata_h %>% ggplot(aes(x = Microglia, y = rheobase_i)) + 
+  geom_point() + 
+  facet_wrap(~cluster_label) + 
+  geom_smooth(method = "lm")  + scale_y_log10() 
+  
+metadata_m %>% filter(input_resistance < 500) %>% ggplot(aes(x = Microglia, y = threshold_v)) + 
+  geom_point() + 
+  facet_wrap(~cluster_label) + 
+  geom_smooth(method = "lm") 
+  
+metadata_m %>% filter(input_resistance < 500) %>% ggplot(aes(x = Microglia, y = rheobase_i)) + 
+  geom_point() + 
+  facet_wrap(~cluster_label) + 
+  geom_smooth(method = "lm")  + scale_y_log10() 
+  
+
+form = scale(log10(input_resistance)) ~ 0 + cluster_label + scale(Microglia) + (1|donor_id)
+lmer_model = lmer(form, data = metadata_m, REML = FALSE)
+
+tidy(lmer_model) %>%
+  filter(effect == "fixed") %>%
+  mutate(term = str_replace(term, "cluster_label", "")) %>%
+  mutate(term = recode(term, `scale(Microglia)` = "Microglia", `scale(cell_soma_normalized_depth)` = "Normalized depth"))
+
+tidy(lmer(form, data = lm_df, REML = FALSE)) %>%
+  filter(effect == "fixed") %>%
+  mutate(term = str_replace(term, "cluster_label", "")) %>%
+  mutate(term = recode(term, `scale(Microglia)` = "Microglia", `scale(cell_soma_normalized_depth)` = "Normalized depth")) %>%
+  dwplot +
+  geom_vline(xintercept = 0, lty = 2) +
+  scale_color_manual(values = "#114357") +
+  labs(y = "Variable", x = "Std. Beta", title = paste0(f)) +
+  theme_classic() +
+  theme(legend.position = "none")
+
+
+# view features lacking enough data 
+n_count = sapply(metadata_h, function(x) sum(!is.na(x))) %>% as.data.frame() %>% rownames_to_column(var = "feature")
+# remove
+metadata_h = metadata_h %>% dplyr::select(-c(slow_trough_v, slow_trough_t, adp_v, rheo_first_isi, adapt))
+
+ephys_features = names(metadata_h)[7:ncol(metadata_h)]
+meta_features = names(metadata_h)[(c(1:3, 4, 5:6))]
+plot_lst = list()
+
+# loop through ephys features 
+for(f in ephys_features){
+  # prepare data 
+  lm_df = metadata_h[,c(meta_features,f)]
+  # lm_df = lm_df[complete.cases(lm_df),]
+  names(lm_df)[ncol(lm_df)] = "feature"
+  
+  form = scale(feature) ~ 0 + cluster_label + scale(Microglia) + (1|donor_id)
+  tidy(lmer(form, data = lm_df, REML = FALSE)) %>%
+    filter(effect == "fixed") %>%
+    mutate(term = str_replace(term, "cluster_label", "")) %>%
+    mutate(term = recode(term, `scale(Microglia)` = "Microglia", `scale(cell_soma_normalized_depth)` = "Normalized depth")) %>%
+    dwplot +
+    geom_vline(xintercept = 0, lty = 2) +
+    scale_color_manual(values = "#114357") +
+    labs(y = "Variable", x = "Std. Beta", title = paste0(f)) +
+    theme_classic() +
+    theme(legend.position = "none")
+  
+  ggsave(filename = paste0("./output/figures/ephys_norandom/",f,".jpeg"), width = 4.5, height = 5)
 ```
 
 ## linear models to compare microglia score with ephys features 
 ```{r}
 # subset to samples with cell soma normalized depth and microglia scores 
-metadata_h = metadata_h[!is.na(metadata_h$cell_soma_normalized_depth),]
+# metadata_h = metadata_h[!is.na(metadata_h$cell_soma_normalized_depth),]
 metadata_h = metadata_h[!is.na(metadata_h$Microglia),]
 # view features lacking enough data 
 n_count = sapply(metadata_h, function(x) sum(!is.na(x))) %>% as.data.frame() %>% rownames_to_column(var = "feature")
@@ -71,18 +184,18 @@ n_count = sapply(metadata_h, function(x) sum(!is.na(x))) %>% as.data.frame() %>%
 metadata_h = metadata_h %>% dplyr::select(-c(slow_trough_v, slow_trough_t, adp_v, rheo_first_isi, adapt))
 
 ephys_features = names(metadata_h)[7:ncol(metadata_h)]
-meta_features = names(metadata_h)[1:6]
+meta_features = names(metadata_h)[(c(1:3, 4, 5:6))]
 plot_lst = list()
 
 # loop through ephys features 
 for(f in ephys_features){
   # prepare data 
   lm_df = metadata_h[,c(meta_features,f)]
-  lm_df = lm_df[complete.cases(lm_df),]
+  # lm_df = lm_df[complete.cases(lm_df),]
   names(lm_df)[ncol(lm_df)] = "feature"
   
-  form = scale(feature) ~ 0 + cluster_label + scale(Microglia) + scale(cell_soma_normalized_depth) + (1|donor_id)
-  tidy(lmer(form, data = lm_df, REML = FALSE)) %>%
+  form = scale(log10(feature)) ~ 0 + cluster_label + scale(Microglia) + (1|donor_id) + scale(cell_soma_normalized_depth)
+  tidy(lmer(form, data = metadata_m, REML = FALSE)) %>%
     filter(effect == "fixed") %>%
     mutate(term = str_replace(term, "cluster_label", "")) %>%
     mutate(term = recode(term, `scale(Microglia)` = "Microglia", `scale(cell_soma_normalized_depth)` = "Normalized depth")) %>%
@@ -103,7 +216,7 @@ metadata_h = metadata_h[!is.na(metadata_h$Microglia),]
 # view features lacking enough data 
 n_count = sapply(metadata_h, function(x) sum(!is.na(x))) %>% as.data.frame() %>% rownames_to_column(var = "feature")
 # remove
-metadata_h = metadata_h %>% dplyr::select(-c(slow_trough_v, slow_trough_t, adp_v, rheo_first_isi, adapt))
+# metadata_h = metadata_h %>% dplyr::select(-c(slow_trough_v, slow_trough_t, adp_v, rheo_first_isi, adapt))
 
 ephys_features = names(metadata_h)[7:ncol(metadata_h)]
 meta_features = names(metadata_h)[1:6]
