@@ -142,39 +142,52 @@ p1 = metadata_h %>% ggplot(aes(x = cluster_label,
                                y = Microglia)) + 
   geom_boxplot(outlier.color = "NA", width = 0.6, lwd = 1.0, color = "#114357") +
   geom_jitter(alpha = 0.5, width = 0.25, shape = 16, size = 1.5, color = "#114357") +
-  labs(x = "Neuron T-type", y = "Microglia Score") +
+  labs(x = "Neuron T-type") +
   theme_classic() +
   theme(axis.text.x = element_text(angle = 30, hjust = 0.8, vjust = 0.9),
-        text = element_text(size = font_size)) +
+        text = element_text(size = font_size), axis.title.y=element_blank()) +
   stat_compare_means(method = "kruskal.test", label.y = 1, label.x = 1, size = 3)
 
 p2 = metadata_h %>% ggplot(aes(x = depth_from_pia_um, y = Microglia)) + 
   geom_point(alpha = 0.5, size = 1.5, shape = 16, color = "#114357") + 
   geom_smooth(method = "lm", se = FALSE, color = "#114357", lwd = 1.0) +
-  labs(x = "Pial Depth, um", y = "") +
+  labs(x = "Pial Depth, um") +
   theme_classic() +
-  theme(text = element_text(size = font_size)) +
+  theme(text = element_text(size = font_size), axis.title.y=element_blank()) +
   stat_cor(method = "spearman", label.y = 1, size = 3)
 
 p3 = metadata_h %>% ggplot(aes(x = reorder(Iba1.bin, Iba1.Cortex), y = Microglia)) + 
   geom_boxplot(outlier.color = "NA", width = 0.6, lwd = 1.0, color = "#114357") + 
   geom_jitter(alpha = 0.5, width = 0.25, shape = 16, size = 1.5, color = "#114357") +
-  labs(x = "IBA1 Protein", y = "") +
+  labs(x = "IBA1 Protein") +
   theme_classic() +
-  theme(text = element_text(size = font_size)) +
+  theme(text = element_text(size = font_size), axis.title.y=element_blank()) +
   stat_compare_means(method = "wilcox", label.y = 1, label.x = 0.8, size = 3)
 
 p4 = metadata_h %>% drop_na(Gfap.bin) %>%
   ggplot(aes(x = reorder(Gfap.bin, GFAP.Cortex), y = Microglia)) + 
   geom_boxplot(outlier.color = "NA", width = 0.6, lwd = 1.0, color = "#114357") + 
   geom_jitter(alpha = 0.5, width = 0.25, shape = 16, size = 1.5, color = "#114357") +
-  labs(x = "GFAP Protein", y = "") +
+  labs(x = "GFAP Protein") +
   theme_classic() +
-  theme(text = element_text(size = font_size)) +
+  theme(text = element_text(size = font_size), axis.title.y=element_blank()) +
   stat_compare_means(method = "wilcox", label.y = 1, label.x = 0.8, size = 3)
 
+metadata_h = metadata_h %>% group_by(donor_id) %>% mutate(median_donor_id_Microglia = median(Microglia), cells_per_donor = n()) %>% ungroup()
+metadata_h$donor_id = fct_reorder(metadata_h$donor_id, metadata_h$median_donor_id_Microglia)
+
+p5 = metadata_h %>% filter(cells_per_donor > 2) %>% ggplot(aes(x = donor_id, 
+                               y = Microglia)) + 
+  geom_boxplot(outlier.color = "NA", width = 0.6, lwd = 1.0, color = "#114357") +
+  geom_jitter(alpha = 0.5, width = 0.25, shape = 16, size = 1.5, color = "#114357") +
+  labs(x = "Donor ID", y = "Microglia Score") +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 30, hjust = 0.8, vjust = 0.9),
+        text = element_text(size = font_size)) +
+  stat_compare_means(method = "kruskal.test", label.y = 1, label.x = 3.5, size = 3)
+
 svglite("output/figures/univar_human.svg", width = 20, height = 8)
-human_univar_plots = plot_grid(p1, p2, p3, p4, nrow = 1, align = "h", rel_widths = c(1.5,1,1,1))
+human_univar_plots = plot_grid(p5, p1, p4, p3, nrow = 1, align = "h", rel_widths = c(2,1.25,1,1))
 human_univar_plots
 dev.off()
 
@@ -278,12 +291,21 @@ metadata_m$cluster_label = fct_reorder(metadata_m$cluster_label, metadata_m$medi
 
 mouse_t_type_plot = metadata_m %>% ggplot(aes(x = corresponding_AIT2.3.1_alias, y = Microglia, fill = cluster_label)) + 
   geom_boxplot(outlier.color = "NA", width = 0.6, lwd = 1.0, color = "#114357") +
-  geom_jitter(alpha = 0.15, width = 0.25, shape = 16, size = 1.5, color = "#114357") +
+  geom_jitter(alpha = 0.05, width = 0.25, shape = 16, size = 1.5, color = "#114357") +
   labs(y = "Microglia Score", fill = "Subclass") +
   theme_classic() +
   theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .8, size = font_size - 2),
-        text = element_text(size = font_size), axis.title.x=element_blank()) +
+        text = element_text(size = font_size), axis.title.x=element_blank(), legend.position="none") +
   stat_compare_means(method = "kruskal.test", label.y = 1, label.x = 4, size = 3)
+
+mouse_subclass_plot = metadata_m %>% ggplot(aes(x = cluster_label, y = Microglia, fill = cluster_label)) + 
+  geom_boxplot(outlier.color = "NA", width = 0.6, lwd = 1.0, color = "#114357") +
+  geom_jitter(alpha = 0.05, width = 0.25, shape = 16, size = 1.5, color = "#114357") +
+  labs(y = "Microglia Score", fill = "Subclass") +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .8, size = font_size - 2),
+        text = element_text(size = font_size), axis.title.x=element_blank(), legend.position="none") +
+  stat_compare_means(method = "kruskal.test", label.y = 1, label.x = 1.5, size = 3)
 
 p2 = metadata_m %>% ggplot(aes(x = cell_soma_normalized_depth, y = Microglia)) + 
   geom_point(size = 1.5, shape = 16, color = "#114357") + 
@@ -294,7 +316,7 @@ p2 = metadata_m %>% ggplot(aes(x = cell_soma_normalized_depth, y = Microglia)) +
   stat_cor(method = "spearman", label.y = 1, size = 5)
 
 svglite("output/figures/univar_mouse.svg", width = 11.11, height = 8)
-plot_grid(mouse_t_type_plot, p2, nrow = 1, align = "h", rel_widths = c(1.5,1))
+mouse_univar_plot = plot_grid(mouse_subclass_plot, mouse_t_type_plot, nrow = 1, align = "h", rel_widths = c(1, 3))
 dev.off()
   
 ```
@@ -388,8 +410,12 @@ dev.off()
 ## combined plot
 ```{r}
 
-plot_grid(human_univar_plots, mouse_t_type_plot, var_exp_human_mouse_plot, 
+svglite("output/figures/mixedeffects.svg", width = 10, height = 8)
+combined_plot = plot_grid(human_univar_plots, mouse_univar_plot, var_exp_human_mouse_plot, 
           nrow = 3, rel_heights = c(1, 1.25, 1))
+combined_plot
+dev.off()
+
 ```
 # appendix
 
