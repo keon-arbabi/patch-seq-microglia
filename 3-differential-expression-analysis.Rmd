@@ -33,6 +33,7 @@ suppressPackageStartupMessages({
   library(cowplot)
   library(ggpubr)
   library(grid)
+  library(gridExtra)
   library(ggrepel)
   library(RColorBrewer)
   library(viridis)
@@ -40,6 +41,7 @@ suppressPackageStartupMessages({
   library(clusterProfiler)
   library(org.Mm.eg.db)
   library(org.Hs.eg.db)
+  library(patchwork)
 })
 
 ```
@@ -54,8 +56,6 @@ suppressPackageStartupMessages({
               scales::log_breaks(base=base), 
               domain=c(1e-100, Inf))
 }
-
-.range01 = function(x){(x-min(x))/(max(x)-min(x))}
 
 .convertHumanGeneList = function(x){
   require("biomaRt")
@@ -77,16 +77,6 @@ suppressPackageStartupMessages({
   # Print the first 6 genes found to the screen
   print(head(mousex))
   return(genesV2)
-}
-
-.getPseudobulk = function(mat, celltype) {
-   mat.summary = do.call(cbind, lapply(levels(celltype), function(ct) {
-     cells = names(celltype)[celltype==ct]
-     pseudobulk = rowSums(mat[, cells])
-     return(pseudobulk)
-   }))
-   colnames(mat.summary) = levels(celltype)
-   return(mat.summary)
 }
 
 plot_enrichments_1 = function(plot_res){
@@ -165,7 +155,6 @@ metadata_h = metadata_h %>%
 
 qcMetrics_h = read.csv(file = here("output","human_qcMetrics.csv"))
 metadata_h = merge(metadata_h, qcMetrics_h[,-1], by = "sample_id")
-metadata_h$Microglia = .range01(metadata_h$Microglia)
 metadata_h = metadata_h[colSums(!is.na(metadata_h))>0]
 rownames(metadata_h) = metadata_h$sample_id
 
@@ -179,8 +168,6 @@ metadata_m = dplyr::rename(metadata_m, sample_id = transcriptomics_sample_id)
 
 qcMetrics_m = read.csv(file = here("output","mouse_qcMetrics.csv"))
 metadata_m = merge(metadata_m, qcMetrics_m[,-1], by = "sample_id")
-metadata_m = dplyr::rename(metadata_m, Microglia = Macrophage)
-metadata_m$Microglia = .range01(metadata_m$Microglia)
 metadata_m = metadata_m[colSums(!is.na(metadata_m))>0]
 rownames(metadata_m) = metadata_m$sample_id
 
@@ -227,23 +214,23 @@ p1 = DimPlot(seu_h, reduction = "umap", label = F, raster = F, shuffle = T) +
   scale_colour_manual(values=rep(brewer.pal(5,"Set1"),times=4))+
   labs(x="", y="") + theme_classic() + NoLegend() 
 
-# Idents(seu_h) = "high_micro"
-# p2 = DimPlot(seu_h, reduction = "umap") + 
-#   scale_color_manual(labels = c("FALSE", "TRUE"), values = c("grey", "royalblue3"))+
-#   labs(x = "", y = "", color = "Microglial\nContamination >0.6") + theme_classic()
+pal = colorRampPalette(rev(brewer.pal(n = 21, name = "RdYlBu")))(20)
 
-pal = colorRampPalette(rev(brewer.pal(n = 11, name = "RdYlBu")))(10)
-
-p2 = FeaturePlot(seu_h, features = "Microglia", pt.size = 3) +
-  scale_color_gradientn(colors = pal, labels = seq(0,1,0.2), breaks = seq(0,1,0.2)) +
-  guides(color = guide_colourbar(barwidth = 0.5, barheight = 10)) +
-  labs(x = "UMAP 1", y = "UMAP 2", title = "", color = "Microglial\nContamination\nScore") + 
+human_umap_p = FeaturePlot(seu_h, features = "Microglia", pt.size = 3) +
+  scale_color_gradientn(colors = pal, labels = c(0,1), breaks = c(0,1)) +
+  guides(color = guide_colourbar(barwidth = 0.25, barheight = 20)) +
+  labs(x = "UMAP 1", y = "UMAP 2", title = "", color = "Microglial Contamination\nScore") + 
   theme_classic() +
-  theme(text = element_text(size = 24))
-
-#svglite("output/figures/umap_human.svg", width = 11, height = 10)
-p2
-#dev.off()
+  theme(plot.margin = unit(c(0,0,0,0), "cm"),
+        legend.position = "right",
+        legend.justification = "center",
+        legend.title = element_blank(),
+        #legend.text = element_text(color = "transparent"),
+        legend.text.align = 0,
+        legend.title.align = 1,
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 16))
+human_umap_p
 
 ```
 
@@ -268,25 +255,38 @@ p1 = DimPlot(seu_m, reduction = "umap", label = F, raster = F, shuffle = T) +
   scale_colour_manual(values=rep(brewer.pal(9,"Set1"),times=10))+
   labs(x="", y="") + theme_classic() + NoLegend() 
 
-# Idents(seu_m) = "high_micro"
-# p2 = DimPlot(seu_m, reduction = "umap") + 
-#   scale_color_manual(labels = c("FALSE", "TRUE"), values = c("grey", "royalblue3"))+
-#   labs(x = "", y = "", color = "Microglial\nContamination >0.6") + theme_classic() 
+pal = colorRampPalette(rev(brewer.pal(n = 21, name = "RdYlBu")))(20)
 
-pal = colorRampPalette(rev(brewer.pal(n = 11, name = "RdYlBu")))(10)
-
-p2 = FeaturePlot(seu_m, features = "Microglia", pt.size = 1) +
-  scale_color_gradientn (colors = pal, labels = seq(0,1,0.2), breaks = seq(0,1,0.2)) +
-  guides(color = guide_colourbar(barwidth = 0.5, barheight = 10)) +
-  labs(x = "UMAP 1", y = "UMAP 2", title = "", color = "Microglial\nContamination\nScore") + 
+mouse_umap_p = FeaturePlot(seu_m, features = "Microglia", pt.size = 1) +
+  scale_color_gradientn(colors = pal, labels = c(0,1), breaks = c(0,1)) +
+  guides(color = guide_colourbar(barwidth = 0.25, barheight = 20)) +
+  labs(x = "UMAP 1", y = "UMAP 2", title = "", color = "Microglial Contamination\nScore") + 
   theme_classic() +
-  theme(text = element_text(size = 24))
-
-#svglite("output/figures/umap_mouse.svg", width = 11, height = 10)
-p2
-#dev.off()
+  theme(plot.margin = unit(c(0,0,0,0), "cm"),
+        legend.position = "right",
+        legend.justification = "center",
+        legend.title = element_blank(),
+        #legend.text = element_text(color = "transparent"),
+        legend.text.align = 0,
+        legend.title.align = 1,
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 16))
+mouse_umap_p
 
 ```
+
+# combine figure 1
+```{r}
+# previously generated plots
+load(file = "./output/qc_figs.RData")
+# combine with umap plots 
+plot_grid(human_heatmap_p, human_umap_p, human_contam_p,
+          mouse_heatmap_p, mouse_umap_p, mouse_contam_p,
+          nrow = 2, ncol = 3, align = "none", axis = "tblr", rel_widths = c(1,1,0.4))
+#ggsave(filename = "./output/figure_1.svg", device = "svg", width = 14, height = 12, units = "in", dpi = 700, limitsize = F)
+
+```
+
 
 # human functional analyses 
 ```{r}

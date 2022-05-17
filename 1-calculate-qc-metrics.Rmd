@@ -5,15 +5,18 @@ date: "01/11/2021"
 output: 
   html_document: 
     keep_md: yes
+editor_options: 
+  chunk_output_type: console
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## load required packages
+The following markdown contains code adapted from https://github.com/AllenInstitute/patchseqtools and https://github.com/AllenInstitute/L5_VEN 
 
-```{r load_libraries}
+# load libraries
+```{r}
 # devtools::install_github("AllenInstitute/patchseqtools")
 # devtools::install_github('PavlidisLab/patchSeqQC')
 # devtools::install_github("AllenInstitute/VENcelltypes")
@@ -37,18 +40,17 @@ suppressPackageStartupMessages({
   library(grid)
   library(svglite)
   library(RColorBrewer)
+  library(ggbeeswarm)
 })
 
 ```
 
-## load patch-seq data
-
-```{r load_data_patch}
-
-# set species to run analyses on "human" or "mouse"
+# load patch-seq data
+```{r}
+# which data, "human" or "mouse"
 spcs = "mouse"  
 
-# set TRUE to download mouse patch-seq expression data
+# download mouse patch-seq expression data
 if(file.exists("./local/20200513_Mouse_PatchSeq_Release_cpm.v2/20200513_Mouse_PatchSeq_Release_cpm.v2.csv") == FALSE){
   dir.create("./local")
   url = 'http://data.nemoarchive.org/other/AIBS/AIBS_patchseq/transcriptome/scell/SMARTseq/processed/analysis/20200611/20200513_Mouse_PatchSeq_Release_cpm.v2.csv.tar'
@@ -56,8 +58,7 @@ if(file.exists("./local/20200513_Mouse_PatchSeq_Release_cpm.v2/20200513_Mouse_Pa
   download.file(url,d,mode="wb")
   untar(d, exdir = "./local")
 }
-
-# mouse patch-seq data
+# read mouse patch-seq data
 if(spcs == "mouse"){
   Samp.datp = fread(file = here("data","patchseq","20200625_patchseq_metadata_mouse.csv"), data.table = FALSE)
   Expr.datp = fread(file = here("local","20200513_Mouse_PatchSeq_Release_cpm.v2","20200513_Mouse_PatchSeq_Release_cpm.v2.csv"), data.table = FALSE) %>%
@@ -76,7 +77,10 @@ if(spcs == "mouse"){
   datPat_all = t(datPat_all)
 }
 
-# human patch-seq data
+# instructions for accessing controlled-access human transcriptomics data
+# https://nemoarchive.org/resources/accessing-controlled-access-data.php#nda-approval-process
+
+# read human patch-seq data
 if(spcs == "human"){
   Samp.datp = fread(file = here("data","patchseq","20200625_patchseq_metadata_human.csv"), data.table = FALSE)
   Expr.datp = fread(file = here("data","patchseq","20200512_Human_PatchSeq_Release_cpm.csv"), data.table = FALSE) %>%
@@ -98,9 +102,8 @@ if(spcs == "human"){
 
 ```
 
-## load and format FACs data
-   
-```{r load_mouse_facs}
+# load and format mouse FACs data
+```{r}
 # run only once
 if(file.exists("./local/mouse_VISp_FACs/mouse_VISp_2018-06-14_readme.txt") == FALSE){
   
@@ -116,7 +119,7 @@ if(file.exists("./local/mouse_VISp_FACs/mouse_VISp_2018-06-14_readme.txt") == FA
   sampInfo = read.csv(file = here("local","mouse_VISp_2018-06-14_samples-columns.csv"), row.names = 1)
   
   # convert the meta-data files into formats consistent with the rest of the analysis
-  sampInfo[is.na(sampInfo)]=0
+  sampInfo[is.na(sampInfo)] = 0
   anno = auto_annotate(sampInfo)
   anno$sample_id = anno$sample_name
     
@@ -173,9 +176,8 @@ if(spcs == "mouse"){
 }
 ```
 
-# load human https://portal.brain-map.org/atlases-and-data/rnaseq/human-multiple-cortical-areas-smart-seq
-
-```{r load_human}
+# load and format human FACs data (https://portal.brain-map.org/atlases-and-data/rnaseq/human-multiple-cortical-areas-smart-seq)
+```{r}
 if(spcs == "human"){
   Samp.dat = fread(file = "./local/Human Multiple Cortical Areas SMART-seq/metadata.csv", data.table = F) %>% 
     filter(region_label == "MTG") %>%
@@ -194,6 +196,7 @@ if(spcs == "human"){
   datFACs2 = Expr.dat[match(annoFACs2$sample_name, rownames(Expr.dat)),]
   datFACs2 = edgeR::cpm(t(datFACs2))
   
+  # adjust subclass labels to match human MTG markers from Lee et al. 
   annoFACs2$subclass_label = make.names(annoFACs2$subclass_label)
   annoFACs2 %<>%
     mutate(subclass_label_new = case_when(
@@ -218,33 +221,25 @@ if(spcs == "human"){
 
 ```
 
-
+# check 
 ```{r}
-# check
-tmp = cbind(annoFACs2, datFACs2['Pvalb',])
-names(tmp)[ncol(tmp)] = "gene"
-tmp %>% ggplot(aes(x = gene, y = subclass_label)) + geom_jitter()
+# plot cell type specific expression 
+if(spcs == "human"){
+  tmp = cbind(annoFACs2, datFACs2['PVALB',])
+  names(tmp)[ncol(tmp)] = "gene"
+  tmp %>% ggplot(aes(x = gene, y = subclass_label_new)) + geom_jitter()
+}
+if(spcs == "mouse"){
+  tmp = cbind(annoFACs2, datFACs2['Pvalb',])
+  names(tmp)[ncol(tmp)] = "gene"
+  tmp %>% ggplot(aes(x = gene, y = subclass_label)) + geom_jitter()
+}
 
 ```
 
-## define markers 
-Define marker genes for each broad class and contamination class (use 50 total for now).  These are selected using some reasonable approach which involves a combination of median expression per class and proportion of cells per class expressing a given gene.  The approach is specifically what was published in the `patchSeqQC` library, with the only difference being that the specific reference data set was changed to our mouse VISp/ALM data set.  Here is the description of on and off markers: 'On markers, are genes that are highly expressed in the cell type of interest with enriched expression relative to other cell types. The second class, Off markers, are expected to be expressed at low levels in a given patch-seq cell type.'  
-  
-For this analysis, we build "on" markers by subclass, and "off" markers by subclass for Non-neuronal cells and by class for neuronal cells.  This approximates what was done in Shreejoy's paper.  
-  
+# define markers
 ```{r}
-# find markers and format
-if(F){
-  markers = defineClassMarkers(datFACs2, clustersF, classBr, numMarkers = 50)
-  allMarkers = unique(unlist(markers))
-  markerTable = NULL
-  for (i in 1:length(markers)) markerTable = cbind(markerTable,markers[[i]])
-  colnames(markerTable) = names(markers)
-  #write.csv(markers,"./data/markers/human_MTG_markers_calculated.csv",row.names=FALSE)
-  #write.csv(markers,"./data/markers/mouse_class_markers_calculated.csv",row.names=FALSE)
-}
-
-# alternatively, load markers from Lee et al. 2021
+# load markers directly from Lee et al. 2021
 if(spcs == "human") markers = read.csv(file = here("data","markers","human_MTG_markers.csv"))
 if(spcs == "mouse") markers = read.csv(file = here("data","markers","mouse_class_markers.csv"))
 markers = as.list(markers)
@@ -253,19 +248,27 @@ markerTable = NULL
 for (i in 1:length(markers)) markerTable = cbind(markerTable,markers[[i]])
 colnames(markerTable) = names(markers)
 
+# # find markers and format
+# markers = defineClassMarkers(datFACs2, clustersF, classBr, numMarkers = 50)
+# allMarkers = unique(unlist(markers))
+# markerTable = NULL
+# for (i in 1:length(markers)) markerTable = cbind(markerTable,markers[[i]])
+# colnames(markerTable) = names(markers)
+# write.csv(markers,"./data/markers/human_MTG_markers_calculated.csv",row.names=FALSE)
+# write.csv(markers,"./data/markers/mouse_class_markers_calculated.csv",row.names=FALSE)
+
 ```
   
-Format the data for FACS and patch-seq.  
-  
-```{r Format the data}
+# format the data for FACS and patch-seq
+```{r}
 # Format the data for FACS and patch-seq
-rownames(datPat_all)[rownames(datPat_all) == '03-Mar'] = "MARCH4"
+rownames(datPat_all)[rownames(datPat_all) == '03-Mar'] = "MARCH4" # fix error
 tmp = datPat_all
 rownames(tmp) = make.names(rownames(tmp))
 pat_df = as.data.frame(t(tmp[allMarkers, annoPat_all$transcriptomics_sample_id])+1)
 pat_df$sample_id = rownames(pat_df)
 
-rownames(datFACs2)[rownames(datFACs2) == '03-Mar'] = "MARCH4"
+rownames(datFACs2)[rownames(datFACs2) == '03-Mar'] = "MARCH4" # fix error
 tmp = datFACs2
 rownames(tmp) = make.names(rownames(tmp))
 facs_df = as.data.frame(t(tmp[allMarkers,])+1)
@@ -275,9 +278,8 @@ facs_df$contam_type = as.character(clustersF)
 
 ```
   
-Define which subclass each patch-seq cell is assigned to, based on maximal marker expression.  
-  
-```{r Calculate contamination}
+# define which subclass each patch-seq cell is assigned to, based on maximal marker expression
+```{r}
 nm  = names(markers)
 isOn = substr(nm,nchar(nm)-2,nchar(nm))=="_on"
 useThese = nm[isOn&(!is.element(nm,paste0(nm,"_on")))]
@@ -301,293 +303,607 @@ pat_df = merge(pat_df, tmp, by = "sample_id", all.y = FALSE)
   
 ```
   
-## calculate the QC metrics 
-  
-This is also a wrapper function for `patchSeqQC` which includes quality score, contamination score, and marker gene sum (both normalized and un-normalized).  Here are some approximate definitions for these things:  
-* norm_marker_sum - This is a measure of how much expression of expected marker genes are found in a patch-seq cell relative to what is seen in the FACs data from which the markers were derived (more detail below.)
-* contam_sum - the contamination index for cell c (of type A), reflects off-target contamination across multiple broad cell types
-* quality_score - "we correlated each patch-seq sample's expression of “on” and “off” marker genes with the average expression profile of dissociated cells of the same type'
-  
-(Details on norm marker sum: "We summarized the expression of multiple cell type specific markers specific to cell type B (MarkersB), in a cell c of type A as: Mc_A, B=∑m∈MarkersBlog2(cm).  Where cm denotes the normalized expression of marker gene m in cell c. We further used the dissociated-cell reference data to quantify how much marker expression of cell type B's markers one would typically expect in cells of type A as: dA_B=mediantypeA(Mc_A, B). Reflecting the median marker expression of cell type B's markers in dissociated cells of type A.")
-  
-```{r caclulate QC metrics}
+# calculate the QC metrics 
+```{r}
+range01 = function(x){(x-min(x))/(max(x)-min(x))}
 
-qcMetrics = calculatePatchSeqQCMetrics2(pat_df,facs_df,markers)
-# We are using NMS score of 0.4 as a pass/fail call
+# calculate 
+qcMetrics = calculatePatchSeqQCMetrics2(pat_df, facs_df,markers)
+# NMS score of 0.4 as a pass/fail call
 qcMetrics$QC_pass = c(TRUE,FALSE)[(qcMetrics$marker_sum_norm<0.40)+1]
+if(spcs == "mouse") qcMetrics = dplyr::rename(qcMetrics, Microglia = Macrophage)
+qcMetrics$Microglia = range01(qcMetrics$Microglia)
+
 dir.create("./output", showWarnings = FALSE)
 #write.csv(qcMetrics, file = "./output/human_qcMetrics.csv")
+#write.csv(qcMetrics, file = "./output/mouse_qcMetrics.csv")
 
 ```
  
-## plot the QC metrics  
- 
-```{r plot_functions}
+# plot marker expression heatmap
+## human
+```{r, warning=FALSE}
 
-# sets colors for cell types
-ann_colors = list(Markers = c(Superficial.Layers = "orangered3", Superficial.Layers_on = "orangered3", Sst_on = "orangered3", Microglia = "royalblue3",
-                              Macrophage = "royalblue3", Astro = "springgreen3", Astrocyte = "springgreen3"),
-                  CellTypes = c(Superficial.Layers = "orangered3", Superficial.Layers_on = "orangered3", Sst_on = "orangered3", Microglia = "royalblue3",
-                              Macrophage = "royalblue3", Astro = "springgreen3", Astrocyte = "springgreen3"))
-
-plotMarkerHeatmap2 = function(markerlist, expr_matrix, show_legend = T, show_annotation_legend = T, show_cell_labels = F, num_markers = 15){
-
-  trimmed_marker_list = lapply(markerlist, function(l) l %>% getValidGenes(., colnames(expr_matrix)) %>% make.names() %>% head(num_markers))
-  markers_count = lapply(trimmed_marker_list, function(l) length(l)) %>% unlist
+if(spcs == "human"){
+  num_markers = 20
+  plot_cell_types = c('Superficial.Layers_on','Microglia','Astrocyte')
+  plot_marker_list = c(markers[plot_cell_types])
+  # don't include unknown marker genes in plot
+  rm_markers = str_detect(allMarkers, "^LOC|^LINC|^KIAA|^SLC|^MT-|^RP[0-9]|^BC[0-9]|-PS")
+  rm_markers = allMarkers[rm_markers]
   
-  order_markers = sapply(trimmed_marker_list, simplify = T, function(l){
-    tmp = expr_matrix[,l]
+  trimmed_marker_list = lapply(plot_marker_list, function(x){
+    ind = which(x %in% rownames(datPat_all))
+    tmp = make.names(x[ind])
+    tmp = tmp[which(!tmp %in% rm_markers)]
+    tmp = head(tmp, num_markers)
+    }
+  )
+  pat_samps = qcMetrics %>%
+    filter(contam_type == "Superficial.Layers_on") %>%
+    #arrange(desc(Microglia)) %>%
+    pull(sample_id)
+  exp_mat = datPat_all[unlist(trimmed_marker_list), pat_samps]
+  exp_mat = log2(exp_mat +1) 
+  #exp_mat = cbind(annoPat_all[annoPat_all$transcriptomics_sample_id %in% pat_samps,], exp_mat) 
+  
+  order_samps = lapply(trimmed_marker_list, function(x){
+    tmp = exp_mat[x,]
     tmp = tmp[,order(colMeans(tmp), decreasing = T)]
     colnames(tmp)
-  }) %>% as.vector()
-  order_samps = sapply(trimmed_marker_list, function(l){
-    tmp = expr_matrix[,l]
-    tmp = tmp[order(rowMeans(tmp), decreasing = T),]
+  }) 
+  order_markers = lapply(trimmed_marker_list, function(x){
+    tmp = exp_mat[x,]
+    tmp = tmp[order(rowMeans(tmp), decreasing = F),]
     rownames(tmp)
   })
-
-  all_trimmed_markers = unlist(trimmed_marker_list) %>% as.character()
-  expr_mat = expr_matrix[, all_trimmed_markers]
-  expr_mat = expr_mat[order_samps[,2], order_markers]
   
-  gaps_col = cumsum(rep(ncol(expr_mat)/3, 3))
-
-  annotation_col = data.frame(Markers = factor(rep(names(markers_count), markers_count), levels = names(markers_count)))
-  rownames(annotation_col) = colnames(expr_mat)
-
-  MAXLOGEXPR = 12
-  breaksList = seq(0, MAXLOGEXPR, by = 1)
-
-  expr_mat[expr_mat > 2^MAXLOGEXPR] = 2^MAXLOGEXPR
-  #expr_mat = t(expr_mat)
+  pal = colorRampPalette(rev(brewer.pal(n = 21, name = "RdYlBu")))(20)
   
-  ann_colors_current = list()
-  ann_colors_current$Markers = ann_colors$Markers[names(markers_count)]
-  ann_colors_current$CellTypes = ann_colors$CellTypes[unique(expr_matrix$contam_type)]
+  m = datPat_all[trimmed_marker_list[[1]], pat_samps]
+  m = log2(m +1) 
+  df = melt(m) %>%
+    mutate(Var1 = factor(Var1, levels = order_markers[[1]])) %>%
+    mutate(Var2 = factor(Var2, levels = order_samps[[2]]))
+  h1 = ggplot(df, aes(Var2, Var1, fill = value, color = value)) +
+    geom_tile() +
+    scale_fill_gradientn(colors = pal, breaks = seq(0,12,2), labels = seq(0,12,2), limits = c(0,12)) +
+    scale_color_gradientn(colors = pal, breaks = seq(0,12,2), labels = seq(0,12,2), limits = c(0,12), guide = "none") +
+    guides(fill = guide_colourbar(barwidth = 10, barheight = 0.5)) +
+    labs(x = "", y = "Superficial neruon\nmarkers", fill = "Log2\nExpression") + 
+    theme(axis.text.x = element_blank(),
+          axis.text.y = element_text(size = 8),
+          axis.ticks.x = element_blank(),
+          plot.title = element_text(size = 12, hjust = 0.5),
+          plot.margin = unit(c(0,0.5,0,0.5), "cm"),
+          legend.position = "top",
+          legend.justification = "center",
+          legend.text.align = 0,
+          legend.title.align = 1,
+          axis.text = element_text(size = 12),
+          axis.title = element_text(size = 16)
+          )
+  
+  m = datPat_all[trimmed_marker_list[[2]], pat_samps]
+  m = log2(m +1) 
+  df = melt(m) %>%
+    mutate(Var1 = factor(Var1, levels = order_markers[[2]])) %>%
+    mutate(Var2 = factor(Var2, levels = order_samps[[2]]))
+  h2 = ggplot(df, aes(Var2, Var1, fill = value, color = value)) +
+    geom_tile() +
+    scale_fill_gradientn(colors = pal, breaks = seq(0,12,2), labels = seq(0,12,2), limits = c(0,12)) +
+    scale_color_gradientn(colors = pal, breaks = seq(0,12,2), labels = seq(0,12,2), limits = c(0,12), guide = "none") +
+    guides(fill = guide_colourbar(barwidth = 10, barheight = 0.5)) +
+    labs(x = "", y = "Microglia\nmarkers", fill = "Log2\nExpression") + 
+    theme(axis.text.x = element_blank(),
+          axis.text.y = element_text(size = 8),
+          axis.ticks.x = element_blank(),
+          plot.margin = unit(c(0,0.5,0,0.5), "cm"),
+          legend.position = "top",
+          legend.justification = "center",
+          legend.text.align = 0,
+          legend.title.align = 1,
+          axis.text = element_text(size = 12),
+          axis.title = element_text(size = 16)
+          )
+  
+  m = datPat_all[trimmed_marker_list[[3]], pat_samps]
+  m = log2(m +1) 
+  df = melt(m) %>%
+    mutate(Var1 = factor(Var1, levels = order_markers[[3]])) %>%
+    mutate(Var2 = factor(Var2, levels = order_samps[[2]]))
+  h3 = ggplot(df, aes(Var2, Var1, fill = value, color = value)) +
+    geom_tile() +
+    scale_fill_gradientn(colors = pal, breaks = seq(0,12,2), labels = seq(0,12,2), limits = c(0,12)) +
+    scale_color_gradientn(colors = pal, breaks = seq(0,12,2), labels = seq(0,12,2), limits = c(0,12), guide = "none") +
+    guides(fill = guide_colourbar(barwidth = 10, barheight = 0.5)) +
+    labs(x = "", y = "Astrocyte\nmarkers", fill = "Log2\nExpression") + 
+    theme(axis.text.x = element_blank(),
+          axis.text.y = element_text(size = 8),
+          axis.ticks.x = element_blank(),
+          plot.margin = unit(c(0,0.5,0,0.5), "cm"),
+          legend.position = "top",
+          legend.justification = "center",
+          legend.text.align = 0,
+          legend.title.align = 1,
+          axis.text = element_text(size = 12),
+          axis.title = element_text(size = 16)
+          )
+  
+  human_heatmap_p = ggarrange(h1, NULL, h2, NULL, h3, ncol = 1, common.legend = T, legend = "none", align = "v", heights = c(1,-0.09,1,-0.09,1)) 
+  human_heatmap_p = annotate_figure(human_heatmap_p, top = text_grob("Superficial Layer Neurons (Human)", hjust = 0.3, size = 16))
+  human_heatmap_p 
+}
 
-  plot_heatmap = pheatmap::pheatmap(expr_mat %>% log2,
-                                    cluster_rows=F, 
-                                    cluster_cols=F, 
-                                    gaps_col = gaps_col, 
-                                    #annotation_colors = ann_colors_current,
-                                    #annotation_col = annotation_col, 
-                                    annotation_names_col = F, 
-                                    show_rownames = show_cell_labels,
-                                    angle_col = 90,
-                                    breaks = breaksList, 
-                                    color = colorRampPalette(rev(RColorBrewer::brewer.pal(n = 11, name = "RdYlBu")))(length(breaksList)),
-                                    border_color = NA,
-                                    fontsize = 18,
-                                    legend = show_legend,
-                                    annotation_legend = show_annotation_legend
+```
+
+## mouse
+```{r, warning=FALSE}
+
+if(spcs == "mouse"){
+  num_markers = 20
+  plot_cell_types = c('Sst_on','Macrophage','Astro')
+  plot_marker_list = c(markers[plot_cell_types])
+  # don't include unknown marker genes in plot
+  rm_markers = str_detect(allMarkers, "^LOC|^LINC|^KIAA|^SLC|^MT-|^RP[0-9]|^BC[0-9]|-PS")
+  rm_markers = allMarkers[rm_markers]
+  
+  trimmed_marker_list = lapply(plot_marker_list, function(x){
+    ind = which(x %in% rownames(datPat_all))
+    tmp = make.names(x[ind])
+    tmp = tmp[which(!tmp %in% rm_markers)]
+    tmp = head(tmp, num_markers)
+    }
   )
+  pat_samps = qcMetrics %>%
+    filter(contam_type == "Sst_on") %>%
+    #arrange(desc(Microglia)) %>%
+    pull(sample_id)
+  exp_mat = datPat_all[unlist(trimmed_marker_list), pat_samps]
+  exp_mat = log2(exp_mat +1) 
+  #exp_mat = cbind(annoPat_all[annoPat_all$transcriptomics_sample_id %in% pat_samps,], exp_mat) 
+  
+  order_samps = lapply(trimmed_marker_list, function(x){
+    tmp = exp_mat[x,]
+    tmp = tmp[,order(colMeans(tmp), decreasing = T)]
+    colnames(tmp)
+  }) 
+  order_markers = lapply(trimmed_marker_list, function(x){
+    tmp = exp_mat[x,]
+    tmp = tmp[order(rowMeans(tmp), decreasing = F),]
+    rownames(tmp)
+  })
+  
+  pal = colorRampPalette(rev(brewer.pal(n = 21, name = "RdYlBu")))(20)
+  
+  m = datPat_all[trimmed_marker_list[[1]], pat_samps]
+  m = log2(m +1) 
+  df = melt(m) %>%
+    mutate(Var1 = factor(Var1, levels = order_markers[[1]])) %>%
+    mutate(Var2 = factor(Var2, levels = order_samps[[2]]))
+  m1 = ggplot(df, aes(Var2, Var1, fill = value, color = value)) +
+    geom_tile() +
+    scale_fill_gradientn(colors = pal, breaks = seq(0,12,2), labels = seq(0,12,2), limits = c(0,12)) +
+    scale_color_gradientn(colors = pal, breaks = seq(0,12,2), labels = seq(0,12,2), limits = c(0,12), guide = "none") +
+    guides(fill = guide_colourbar(barwidth = 10, barheight = 0.5)) +
+    labs(x = "", y = "SST Interneuron\nmarkers", fill = "Log2\nExpression") + 
+    theme(axis.text.x = element_blank(),
+          axis.text.y = element_text(size = 8),
+          axis.ticks.x = element_blank(),
+          plot.title = element_text(size = 12, hjust = 0.5),
+          plot.margin = unit(c(0,0.5,0,0.5), "cm"),
+          legend.position = "bottom",
+          legend.justification = "left",
+          legend.title = element_text(vjust = 1.3),
+          legend.text.align = 0,
+          legend.title.align = 1,
+          axis.text = element_text(size = 12),
+          axis.title = element_text(size = 16)
+          )
+  m = datPat_all[trimmed_marker_list[[2]], pat_samps]
+  m = log2(m +1) 
+  df = melt(m) %>%
+    mutate(Var1 = factor(Var1, levels = order_markers[[2]])) %>%
+    mutate(Var2 = factor(Var2, levels = order_samps[[2]]))
+  m2 = ggplot(df, aes(Var2, Var1, fill = value, color = value)) +
+    geom_tile() +
+    scale_fill_gradientn(colors = pal, breaks = seq(0,12,2), labels = seq(0,12,2), limits = c(0,12)) +
+    scale_color_gradientn(colors = pal, breaks = seq(0,12,2), labels = seq(0,12,2), limits = c(0,12), guide = "none") +
+    guides(fill = guide_colourbar(barwidth = 10, barheight = 0.5)) +
+    labs(x = "", y = "Microglia\nmarkers", fill = "Log2\nExpression") + 
+    theme(axis.text.x = element_blank(),
+          axis.text.y = element_text(size = 8),
+          axis.ticks.x = element_blank(),
+          plot.margin = unit(c(0,0.5,0,0.5), "cm"),
+          legend.position = "bottom",
+          legend.justification = "left",
+          legend.title = element_text(vjust = 1.3),
+          legend.text.align = 0,
+          legend.title.align = 1,
+          axis.text = element_text(size = 12),
+          axis.title = element_text(size = 16)
+          )
+  m = datPat_all[trimmed_marker_list[[3]], pat_samps]
+  m = log2(m +1) 
+  df = melt(m) %>%
+    mutate(Var1 = factor(Var1, levels = order_markers[[3]])) %>%
+    mutate(Var2 = factor(Var2, levels = order_samps[[2]]))
+  m3 = ggplot(df, aes(Var2, Var1, fill = value, color = value)) +
+    geom_tile() +
+    scale_fill_gradientn(colors = pal, breaks = seq(0,12,2), labels = seq(0,12,2), limits = c(0,12)) +
+    scale_color_gradientn(colors = pal, breaks = seq(0,12,2), labels = seq(0,12,2), limits = c(0,12), guide = "none") +
+    guides(fill = guide_colourbar(barwidth = 10, barheight = 0.5)) +
+    labs(x = "", y = "Astrocyte\nmarkers", fill = "Log2\nExpression") + 
+    theme(axis.text.x = element_blank(),
+          axis.text.y = element_text(size = 8),
+          axis.ticks.x = element_blank(),
+          plot.margin = unit(c(0,0.5,0,0.5), "cm"),
+          legend.position = "bottom",
+          legend.justification = "left",
+          legend.title = element_text(vjust = 1.3),
+          legend.text.align = 0,
+          legend.title.align = 1,
+          axis.text = element_text(size = 12),
+          axis.title = element_text(size = 16)
+          )
+  
+  mouse_heatmap_p = ggarrange(m1, NULL, m2, NULL, m3, ncol = 1, common.legend = T, legend = "bottom", align = "v", heights = c(1,-0.09,1,-0.09,1)) 
+  mouse_heatmap_p = annotate_figure(mouse_heatmap_p, top = text_grob("SST Interneurons (Mouse)", hjust = 0.3, size = 16))
+  mouse_heatmap_p
 }
 
-plotPatchSeqDissocCellMarkerExpr = function(patch_seq_contam_df,
-                                            dissoc_cell_contam_df,
-                                            on_type,
-                                            off_type){
-x_min = 0
-x_max = max(dissoc_cell_contam_df[, on_type], patch_seq_contam_df[, on_type]) + 0
-y_min_1 = min(c(dissoc_cell_contam_df[, off_type], patch_seq_contam_df[,off_type], dissoc_cell_contam_df[,off_type])) - 0
-y_max_1 = max(c(dissoc_cell_contam_df[,off_type], patch_seq_contam_df[,off_type], dissoc_cell_contam_df[,off_type])) + 0
-
-PLOT_THRESHOLD = .025
-
-aibs_pyr = dissoc_cell_contam_df %>% dplyr::filter(contam_type == off_type) %>% dplyr::select(off_type) %>% unlist
-aibs_pyr_low = aibs_pyr %>% quantile(PLOT_THRESHOLD)
-aibs_pyr_high = aibs_pyr %>% quantile(1-PLOT_THRESHOLD)
-aibs_ndnf = dissoc_cell_contam_df %>% dplyr::filter(contam_type == on_type) %>% dplyr::select(on_type) %>% unlist
-aibs_ndnf_low = aibs_ndnf %>% quantile(PLOT_THRESHOLD)
-aibs_ndnf_high = aibs_ndnf %>% quantile(1-PLOT_THRESHOLD)
-
-p1 = ggplot(dissoc_cell_contam_df %>% dplyr::filter(contam_type %in% c(on_type, off_type)),
-            aes_string(x = on_type, y = off_type, color = 'colors')) +
-  geom_hline(yintercept = aibs_pyr_high, color = 'royalblue3', linetype = 2, alpha = .8, size = 1) + 
-  geom_hline(yintercept = aibs_pyr_low, color = 'royalblue3', linetype = 2, alpha = .8, size = 1) +
-  geom_vline(xintercept = aibs_ndnf_high, color = 'orangered3', linetype = 2, alpha = .8, size = 1) +
-  geom_vline(xintercept = aibs_ndnf_low, color = 'orangered3', linetype = 2, alpha = .8, size = 1) +
-  geom_point(alpha = 1) + scale_color_identity() +
-  xlab(paste(on_type, 'markers (log2 CPM+1)')) + ylab(paste(off_type, 'markers (log2 CPM+1)')) +
-  ggtitle('Reference cell data') + xlim(x_min, x_max) + ylim(y_min_1, y_max_1) +
-  theme(axis.title = element_text(size = 12), axis.text = element_text(size = 10), plot.title = element_text(size = 12)) +
-  theme_classic()
-
-p2 = ggplot(patch_seq_contam_df, 
-            aes_string(x = on_type, y = off_type, color = 'colors')) +
-  geom_hline(yintercept = aibs_pyr_high, color = 'royalblue3', linetype = 2, alpha = .8, size = 1) + 
-  geom_hline(yintercept = aibs_pyr_low, color = 'royalblue3', linetype = 2, alpha = .8, size = 1) +
-  geom_vline(xintercept = aibs_ndnf_high, color = 'orangered3', linetype = 2, alpha = .8, size = 1) + 
-  geom_vline(xintercept = aibs_ndnf_low, color = 'orangered3', linetype = 2, alpha = .8, size = 1) +
-  geom_point() + scale_color_identity() +
-  xlab(paste(on_type, 'markers (log2 CPM+1)')) + ylab(paste(off_type, 'markers (log2 CPM+1)')) +
-  ggtitle('Patch seq cell data') + xlim(x_min, x_max) + ylim(y_min_1, y_max_1) +
-  theme(axis.title = element_text(size = 12), axis.text = element_text(size = 10), plot.title = element_text(size = 12)) +
-  theme_classic()
-
-cadwell_aibs_marker_comp = plot_grid(p1, p2, nrow = 1)
-return(cadwell_aibs_marker_comp)
-
-}
-
-plotMarkerBoxplots = function(patch_seq_contam_df,
-                              dissoc_cell_contam_df,
-                              on_type,
-                              off_type){
-  
-  subclasses = unique(dissoc_cell_contam_df$contam_type)
-  
-  dissoc_cell_contam_df = dissoc_cell_contam_df %>%
-    dplyr::select(c(on_type,off_type,"colors","contam_type")) %>%
-    mutate(group = case_when(contam_type == subclasses[1] ~ "ref_on",
-                             contam_type == subclasses[2] ~ "ref_off"))
-  
-  patch_seq_contam_df = patch_seq_contam_df %>%
-    dplyr::select(c(on_type,off_type,"colors","contam_type")) %>%
-    mutate(group = "pat")
-  
-  plot_df = rbind(dissoc_cell_contam_df, patch_seq_contam_df) %>%
-    rownames_to_column(var = "sample") %>%
-    pivot_longer(cols = c(2,3), names_to = "Markers", values_to = "expression")
-  plot_df$expression = log2(plot_df$expression +1)
-  plot_df$Markers = factor(plot_df$Markers, levels = c("Macrophage", "Sst_on"), labels = c("Microglia", "SST Neurons")) # check
-  plot_df$group = factor(plot_df$group, 
-                         levels = c("ref_on","ref_off","pat"), 
-                         labels = c("reference\nSST neurons","reference\nmicroglia","patchseq\nSST neurons"))
-  
-  dodge = position_dodge(width = 0.4)
-  pal = colorRampPalette(rev(brewer.pal(n = 11, name = "RdYlBu")))(20)
-  
-  p = ggplot(plot_df, aes(x = group, y = expression, fill = Markers))+
-    geom_violin(trim = F, position = dodge, width = 0.4, scale = "width") +   
-    geom_boxplot(width = .1, outlier.color = NA, position = dodge) +
-    scale_fill_manual(values = c(pal[18], pal[3])) +
-    labs(x = "", y = "Marker Expression (Log2(CPM+1)") +
-    theme_classic() +
-    theme(text = element_text(size = 24),
-          axis.text.x = element_text(size = 24))
-
-  return(p)
-}
-
 ```
 
+# plot microglia score distribution
 ```{r plot}
 
-pat_samps = qcMetrics %>% 
-  # {if(spcs=="human") filter(., contam_type == "Superficial.Layers_on") else .} %>%
-  # {if(spcs=="mouse") filter(., contam_type == "Sst_on") else .} %>%
-  {if(spcs=="human") arrange(., desc(Microglia)) else .} %>%
-  {if(spcs=="mouse") arrange(., desc(Macrophage)) else .} %>%
-  pull(sample_id)
+human_qc = read.csv(file = "./output/human_qcMetrics.csv") %>% mutate(Group = "Human")
+mouse_qc = read.csv(file = "./output/mouse_qcMetrics.csv") %>% mutate(Group = "Mouse")
 
-pat_plotting_df = datPat_all[,pat_samps]
-pat_plotting_df = cbind(annoPat_all[annoPat_all$transcriptomics_sample_id %in% pat_samps,], pat_plotting_df %>% t()) 
-rownames(pat_plotting_df) = pat_samps
+human_contam_p = ggplot() + 
+  geom_density(data = human_qc, aes(Microglia), size = 1.5, color = "black", fill = "grey", alpha = 0.25) + 
+  #geom_density(data = mouse_qc, aes(Microglia), size = 1.5, color = "lightgrey", fill = "grey", alpha = 0.1) + 
+  geom_vline(xintercept = mean(human_qc$Microglia), size = 1, color = "black", linetype = "dashed") +
+  #geom_vline(xintercept = mean(mouse_qc$Microglia), size = 1, color = "lightgrey", linetype = "dashed") +
+  scale_y_continuous(limits = c(0,5)) +
+  labs(x = "Microglia Contamination Score", y = "Density") +
+  coord_flip() +
+  theme_classic() + 
+  theme(legend.position = "none",
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 16))
+human_contam_p 
 
-if(spcs=="human") plot_cell_types = c('Superficial.Layers_on','Microglia','Astrocyte')
-if(spcs=="mouse") plot_cell_types = c('Sst_on','Macrophage','Astro')
-plot_marker_list = c(markers[plot_cell_types])
+mouse_contam_p = ggplot() + 
+  #geom_density(data = human_qc, aes(Microglia), size = 1.5, color = "lightgrey", fill = "grey", alpha = 0.1) + 
+  geom_density(data = mouse_qc, aes(Microglia), size = 1.5, color = "black", fill = "grey", alpha = 0.25) + 
+  #geom_vline(xintercept = mean(human_qc$Microglia), size = 1, color = "lightgrey", linetype = "dashed") +
+  geom_vline(xintercept = mean(mouse_qc$Microglia), size = 1, color = "black", linetype = "dashed") +
+  scale_y_continuous(limits = c(0,5)) +
+  labs(x = "Microglia Contamination Score", y = "Density") +
+  coord_flip() +
+  theme_classic() + 
+  theme(legend.position = "none",
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 16))
+mouse_contam_p
 
-# if(spcs=="human") svglite("output/figures/heatmap_human.svg", width = 12, height = 8)
-# if(spcs=="mouse") svglite("output/figures/heatmap_mouse.svg", width = 12, height = 8)
+#rm(list = setdiff(ls(), c("human_heatmap_p","mouse_heatmap_p","contam_dist_p")))
+save(human_heatmap_p, mouse_heatmap_p, human_contam_p, mouse_contam_p, file =  "./output/qc_figs.RData")
 
-png("output/figures/heatmap_mouse.png", units = "in", width = 10, height = 10, res = 100)
-  plotMarkerHeatmap2(markerlist = plot_marker_list, # named list of lists defining which markers to show
-                     expr_matrix = pat_plotting_df, # data frame that combines gene expr with metadata, each row is a single-cell
-                     show_legend = T, # show color bar
-                     show_annotation_legend = F,
-                     show_cell_labels = F, # show sample names in heatmap (defined by rownames of expr_matrix)
-                     num_markers = 16
-                     )
-  #grid.text(plot_cell_types, x=c(0.10,0.36,0.67),y=c(0.97,0.97,0.97), gp=gpar(fontsize=9, col="white", alpha = 1.0, fontface ="bold"))
-dev.off()
-
-```
-
-
-```{r plot}
-
-cut = 0.6
-percentile = ecdf(qcMetrics$Macrophage)
-percentile(0.6)
-hist(qcMetrics$Macrophage)
-
-qcMetrics = qcMetrics  %>%
-  mutate(high_micro = case_when(
-    Macrophage > cut ~ TRUE,
-    Macrophage < cut ~ FALSE
-  ))
-#write.csv(qcMetrics, file = "./output/mouse_qcMetrics.csv")
-high_samps = qcMetrics %>% filter(high_micro == TRUE) %>% pull(sample_id)
-
-#svglite("output/figures/histcut_mouse.svg", width = 8.5, height = 6.88)
-  ggplot(qcMetrics, aes(Macrophage))+
-    geom_histogram(bins = 25, fill = "royalblue3") +
-    geom_vline(xintercept = cut, linetype = "dashed", size = 1) +
-    #geom_text(aes(0, cut, label = paste("contam_score = ", cut, sep = ""), vjust = -20, hjust = -5)) +
-    labs(x = "microglia contamination score", y = "cell count") +
-    coord_flip() + 
-    theme_classic()
-#dev.off()
+# contam_dist_p = ggplot(comb_qc, aes(x = Group, y = Microglia, fill = Group)) +
+#   geom_violin() +
+#   geom_boxplot(width = 0.05, outlier.shape = NA, alpha = 0.25) +
+#   scale_fill_manual(values = c("#F99655","#96C8E0")) +
+#   labs(x = "", y = "Microglia Contamination Score") +
+#   theme_classic() +
+#   theme(legend.position = "none")
+# contam_dist_p
 
 ```
 
-```{r plot}
 
-if(spcs=="human") samps = qcMetrics %>% filter(contam_type == "Superficial.Layers_on") %>% pull(sample_id)
-if(spcs=="mouse") samps = qcMetrics %>% filter(contam_type == "Sst_on") %>% pull(sample_id) 
 
-pat_contam = calcContamAllTypes(t(datPat_all+1), markers, colwise = F) %>% filter(rownames(.) %in% pat_samps)
-pat_contam = pat_contam %>% 
-  filter(rownames(.) %in% samps) %>%
-  rownames_to_column(var = "sample_id") %>%
-  mutate(colors = case_when(
-    sample_id %in% high_samps ~ "royalblue3",
-    TRUE ~ "grey"
-  )) %>%
-  column_to_rownames(var = "sample_id")
-pat_contam$major_type = "Glutamatergic"
-if(spcs=="human") pat_contam$contam_type = "Superficial.Layers_on"
-if(spcs=="mouse") pat_contam$contam_type = "Sst_on"
 
-if(spcs=="human") facs_samps = annoFACs2 %>% filter(subclass_label_new == "Superficial.Layers") %>% pull(sample_name) %>% as.character()
-if(spcs=="mouse") facs_samps = annoFACs2 %>% filter(subclass_label == "Sst") %>% pull(sample_id) %>% as.character()
 
-facs_superficial_contam = calcContamAllTypes(t(datFACs2[,facs_samps]+1), markers, colwise = F) 
-facs_superficial_contam$colors = 'orangered3'
-if(spcs=="human") facs_superficial_contam$contam_type = 'Superficial.Layers_on'
-if(spcs=="mouse") facs_superficial_contam$contam_type = 'Sst_on'
 
-if(spcs=="human") facs_samps = annoFACs2 %>% filter(subclass_label_new == "Microglia") %>% pull(sample_name) %>% as.character()
-if(spcs=="mouse") facs_samps = annoFACs2 %>% filter(subclass_label == "Macrophage") %>% pull(sample_id) %>% as.character()
 
-facs_micro_contam = calcContamAllTypes(t(datFACs2[,facs_samps]+1), markers, colwise = F) 
-facs_micro_contam$colors = "royalblue3"
-facs_micro_contam$contam_type = 'Macrophage' #check
 
-if(spcs=="human") facs_contam = rbind(facs_superficial_contam %>% dplyr::select(Superficial.Layers_on, Microglia, colors, contam_type),
-                                      facs_micro_contam %>% dplyr::select(Superficial.Layers_on, Microglia, colors, contam_type))
-if(spcs=="mouse") facs_contam = rbind(facs_superficial_contam %>% dplyr::select(Sst_on, Macrophage, colors, contam_type), 
-                                      facs_micro_contam %>% dplyr::select(Sst_on, Macrophage, colors, contam_type))
 
-if(spcs=="human") svglite("output/figures/facsvspat_human.svg", width = 12, height = 7)
-if(spcs=="mouse") svglite("output/figures/facsvspat_mouse.svg", width = 12, height = 7)
-plotPatchSeqDissocCellMarkerExpr(patch_seq_contam_df = pat_contam,
-                                 dissoc_cell_contam_df = facs_contam, 
-                                 on_type = 'Sst_on', #check
-                                 off_type = 'Macrophage') #check
-dev.off()
 
-if(spcs=="human") svglite("output/figures/facsvspat_box_human.svg", width = 10, height = 10)
-if(spcs=="mouse") svglite("output/figures/facsvspat_box_mouse.svg",  width = 10, height = 10)
-plotMarkerBoxplots(patch_seq_contam_df = pat_contam,
-                   dissoc_cell_contam_df = facs_contam, 
-                   on_type = 'Sst_on', #check
-                   off_type = 'Macrophage') #check
-dev.off()
 
-```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ 
+<!-- # ```{r plot_functions} -->
+<!-- #  -->
+<!-- # # sets colors for cell types -->
+<!-- # ann_colors = list(Markers = c(Superficial.Layers = "orangered3", Superficial.Layers_on = "orangered3", Sst_on = "orangered3", Microglia = "royalblue3", -->
+<!-- #                               Macrophage = "royalblue3", Astro = "springgreen3", Astrocyte = "springgreen3"), -->
+<!-- #                   CellTypes = c(Superficial.Layers = "orangered3", Superficial.Layers_on = "orangered3", Sst_on = "orangered3", Microglia = "royalblue3", -->
+<!-- #                               Macrophage = "royalblue3", Astro = "springgreen3", Astrocyte = "springgreen3")) -->
+<!-- #  -->
+<!-- # plotMarkerHeatmap2 = function(markerlist, expr_matrix, show_legend = T, show_annotation_legend = T, show_cell_labels = F, num_markers = 15){ -->
+<!-- #  -->
+<!-- #   trimmed_marker_list = lapply(markerlist, function(l) l %>% getValidGenes(., colnames(expr_matrix)) %>% make.names() %>% head(num_markers)) -->
+<!-- #   markers_count = lapply(trimmed_marker_list, function(l) length(l)) %>% unlist -->
+<!-- #    -->
+<!-- #   order_markers = sapply(trimmed_marker_list, simplify = T, function(l){ -->
+<!-- #     tmp = expr_matrix[,l] -->
+<!-- #     tmp = tmp[,order(colMeans(tmp), decreasing = T)] -->
+<!-- #     colnames(tmp) -->
+<!-- #   }) %>% as.vector() -->
+<!-- #   order_samps = sapply(trimmed_marker_list, function(l){ -->
+<!-- #     tmp = expr_matrix[,l] -->
+<!-- #     tmp = tmp[order(rowMeans(tmp), decreasing = T),] -->
+<!-- #     rownames(tmp) -->
+<!-- #   }) -->
+<!-- #  -->
+<!-- #   all_trimmed_markers = unlist(trimmed_marker_list) %>% as.character() -->
+<!-- #   expr_mat = expr_matrix[, all_trimmed_markers] -->
+<!-- #   expr_mat = expr_mat[order_samps[,2], order_markers] -->
+<!-- #    -->
+<!-- #   gaps_col = cumsum(rep(ncol(expr_mat)/3, 3)) -->
+<!-- #  -->
+<!-- #   annotation_col = data.frame(Markers = factor(rep(names(markers_count), markers_count), levels = names(markers_count))) -->
+<!-- #   rownames(annotation_col) = colnames(expr_mat) -->
+<!-- #  -->
+<!-- #   MAXLOGEXPR = 12 -->
+<!-- #   breaksList = seq(0, MAXLOGEXPR, by = 1) -->
+<!-- #  -->
+<!-- #   expr_mat[expr_mat > 2^MAXLOGEXPR] = 2^MAXLOGEXPR -->
+<!-- #   #expr_mat = t(expr_mat) -->
+<!-- #    -->
+<!-- #   ann_colors_current = list() -->
+<!-- #   ann_colors_current$Markers = ann_colors$Markers[names(markers_count)] -->
+<!-- #   ann_colors_current$CellTypes = ann_colors$CellTypes[unique(expr_matrix$contam_type)] -->
+<!-- #  -->
+<!-- #   plot_heatmap = pheatmap::pheatmap(expr_mat %>% log2, -->
+<!-- #                                     cluster_rows=F,  -->
+<!-- #                                     cluster_cols=F,  -->
+<!-- #                                     gaps_col = gaps_col,  -->
+<!-- #                                     #annotation_colors = ann_colors_current, -->
+<!-- #                                     #annotation_col = annotation_col,  -->
+<!-- #                                     annotation_names_col = F,  -->
+<!-- #                                     show_rownames = show_cell_labels, -->
+<!-- #                                     angle_col = 90, -->
+<!-- #                                     breaks = breaksList,  -->
+<!-- #                                     color = colorRampPalette(rev(RColorBrewer::brewer.pal(n = 11, name = "RdYlBu")))(length(breaksList)), -->
+<!-- #                                     border_color = NA, -->
+<!-- #                                     fontsize = 18, -->
+<!-- #                                     legend = show_legend, -->
+<!-- #                                     annotation_legend = show_annotation_legend -->
+<!-- #   ) -->
+<!-- # } -->
+<!-- #  -->
+<!-- # plotPatchSeqDissocCellMarkerExpr = function(patch_seq_contam_df, -->
+<!-- #                                             dissoc_cell_contam_df, -->
+<!-- #                                             on_type, -->
+<!-- #                                             off_type){ -->
+<!-- # x_min = 0 -->
+<!-- # x_max = max(dissoc_cell_contam_df[, on_type], patch_seq_contam_df[, on_type]) + 0 -->
+<!-- # y_min_1 = min(c(dissoc_cell_contam_df[, off_type], patch_seq_contam_df[,off_type], dissoc_cell_contam_df[,off_type])) - 0 -->
+<!-- # y_max_1 = max(c(dissoc_cell_contam_df[,off_type], patch_seq_contam_df[,off_type], dissoc_cell_contam_df[,off_type])) + 0 -->
+<!-- #  -->
+<!-- # PLOT_THRESHOLD = .025 -->
+<!-- #  -->
+<!-- # aibs_pyr = dissoc_cell_contam_df %>% dplyr::filter(contam_type == off_type) %>% dplyr::select(off_type) %>% unlist -->
+<!-- # aibs_pyr_low = aibs_pyr %>% quantile(PLOT_THRESHOLD) -->
+<!-- # aibs_pyr_high = aibs_pyr %>% quantile(1-PLOT_THRESHOLD) -->
+<!-- # aibs_ndnf = dissoc_cell_contam_df %>% dplyr::filter(contam_type == on_type) %>% dplyr::select(on_type) %>% unlist -->
+<!-- # aibs_ndnf_low = aibs_ndnf %>% quantile(PLOT_THRESHOLD) -->
+<!-- # aibs_ndnf_high = aibs_ndnf %>% quantile(1-PLOT_THRESHOLD) -->
+<!-- #  -->
+<!-- # p1 = ggplot(dissoc_cell_contam_df %>% dplyr::filter(contam_type %in% c(on_type, off_type)), -->
+<!-- #             aes_string(x = on_type, y = off_type, color = 'colors')) + -->
+<!-- #   geom_hline(yintercept = aibs_pyr_high, color = 'royalblue3', linetype = 2, alpha = .8, size = 1) +  -->
+<!-- #   geom_hline(yintercept = aibs_pyr_low, color = 'royalblue3', linetype = 2, alpha = .8, size = 1) + -->
+<!-- #   geom_vline(xintercept = aibs_ndnf_high, color = 'orangered3', linetype = 2, alpha = .8, size = 1) + -->
+<!-- #   geom_vline(xintercept = aibs_ndnf_low, color = 'orangered3', linetype = 2, alpha = .8, size = 1) + -->
+<!-- #   geom_point(alpha = 1) + scale_color_identity() + -->
+<!-- #   xlab(paste(on_type, 'markers (log2 CPM+1)')) + ylab(paste(off_type, 'markers (log2 CPM+1)')) + -->
+<!-- #   ggtitle('Reference cell data') + xlim(x_min, x_max) + ylim(y_min_1, y_max_1) + -->
+<!-- #   theme(axis.title = element_text(size = 12), axis.text = element_text(size = 10), plot.title = element_text(size = 12)) + -->
+<!-- #   theme_classic() -->
+<!-- #  -->
+<!-- # p2 = ggplot(patch_seq_contam_df,  -->
+<!-- #             aes_string(x = on_type, y = off_type, color = 'colors')) + -->
+<!-- #   geom_hline(yintercept = aibs_pyr_high, color = 'royalblue3', linetype = 2, alpha = .8, size = 1) +  -->
+<!-- #   geom_hline(yintercept = aibs_pyr_low, color = 'royalblue3', linetype = 2, alpha = .8, size = 1) + -->
+<!-- #   geom_vline(xintercept = aibs_ndnf_high, color = 'orangered3', linetype = 2, alpha = .8, size = 1) +  -->
+<!-- #   geom_vline(xintercept = aibs_ndnf_low, color = 'orangered3', linetype = 2, alpha = .8, size = 1) + -->
+<!-- #   geom_point() + scale_color_identity() + -->
+<!-- #   xlab(paste(on_type, 'markers (log2 CPM+1)')) + ylab(paste(off_type, 'markers (log2 CPM+1)')) + -->
+<!-- #   ggtitle('Patch seq cell data') + xlim(x_min, x_max) + ylim(y_min_1, y_max_1) + -->
+<!-- #   theme(axis.title = element_text(size = 12), axis.text = element_text(size = 10), plot.title = element_text(size = 12)) + -->
+<!-- #   theme_classic() -->
+<!-- #  -->
+<!-- # cadwell_aibs_marker_comp = plot_grid(p1, p2, nrow = 1) -->
+<!-- # return(cadwell_aibs_marker_comp) -->
+<!-- #  -->
+<!-- # } -->
+<!-- #  -->
+<!-- # plotMarkerBoxplots = function(patch_seq_contam_df, -->
+<!-- #                               dissoc_cell_contam_df, -->
+<!-- #                               on_type, -->
+<!-- #                               off_type){ -->
+<!-- #    -->
+<!-- #   subclasses = unique(dissoc_cell_contam_df$contam_type) -->
+<!-- #    -->
+<!-- #   dissoc_cell_contam_df = dissoc_cell_contam_df %>% -->
+<!-- #     dplyr::select(c(on_type,off_type,"colors","contam_type")) %>% -->
+<!-- #     mutate(group = case_when(contam_type == subclasses[1] ~ "ref_on", -->
+<!-- #                              contam_type == subclasses[2] ~ "ref_off")) -->
+<!-- #    -->
+<!-- #   patch_seq_contam_df = patch_seq_contam_df %>% -->
+<!-- #     dplyr::select(c(on_type,off_type,"colors","contam_type")) %>% -->
+<!-- #     mutate(group = "pat") -->
+<!-- #    -->
+<!-- #   plot_df = rbind(dissoc_cell_contam_df, patch_seq_contam_df) %>% -->
+<!-- #     rownames_to_column(var = "sample") %>% -->
+<!-- #     pivot_longer(cols = c(2,3), names_to = "Markers", values_to = "expression") -->
+<!-- #   plot_df$expression = log2(plot_df$expression +1) -->
+<!-- #   plot_df$Markers = factor(plot_df$Markers, levels = c("Macrophage", "Sst_on"), labels = c("Microglia", "SST Neurons")) # check -->
+<!-- #   plot_df$group = factor(plot_df$group,  -->
+<!-- #                          levels = c("ref_on","ref_off","pat"),  -->
+<!-- #                          labels = c("reference\nSST neurons","reference\nmicroglia","patchseq\nSST neurons")) -->
+<!-- #    -->
+<!-- #   dodge = position_dodge(width = 0.4) -->
+<!-- #   pal = colorRampPalette(rev(brewer.pal(n = 11, name = "RdYlBu")))(20) -->
+<!-- #    -->
+<!-- #   p = ggplot(plot_df, aes(x = group, y = expression, fill = Markers))+ -->
+<!-- #     geom_violin(trim = F, position = dodge, width = 0.4, scale = "width") +    -->
+<!-- #     geom_boxplot(width = .1, outlier.color = NA, position = dodge) + -->
+<!-- #     scale_fill_manual(values = c(pal[18], pal[3])) + -->
+<!-- #     labs(x = "", y = "Marker Expression (Log2(CPM+1)") + -->
+<!-- #     theme_classic() + -->
+<!-- #     theme(text = element_text(size = 24), -->
+<!-- #           axis.text.x = element_text(size = 24)) -->
+<!-- #  -->
+<!-- #   return(p) -->
+<!-- # } -->
+<!-- #  -->
+<!-- # ``` -->
+<!-- #  -->
+<!-- # ```{r plot} -->
+<!-- #  -->
+<!-- # pat_samps = qcMetrics %>%  -->
+<!-- #   # {if(spcs=="human") filter(., contam_type == "Superficial.Layers_on") else .} %>% -->
+<!-- #   # {if(spcs=="mouse") filter(., contam_type == "Sst_on") else .} %>% -->
+<!-- #   {if(spcs=="human") arrange(., desc(Microglia)) else .} %>% -->
+<!-- #   {if(spcs=="mouse") arrange(., desc(Macrophage)) else .} %>% -->
+<!-- #   pull(sample_id) -->
+<!-- #  -->
+<!-- # pat_plotting_df = datPat_all[,pat_samps] -->
+<!-- # pat_plotting_df = cbind(annoPat_all[annoPat_all$transcriptomics_sample_id %in% pat_samps,], pat_plotting_df %>% t())  -->
+<!-- # rownames(pat_plotting_df) = pat_samps -->
+<!-- #  -->
+<!-- # if(spcs=="human") plot_cell_types = c('Superficial.Layers_on','Microglia','Astrocyte') -->
+<!-- # if(spcs=="mouse") plot_cell_types = c('Sst_on','Macrophage','Astro') -->
+<!-- # plot_marker_list = c(markers[plot_cell_types]) -->
+<!-- #  -->
+<!-- # # if(spcs=="human") svglite("output/figures/heatmap_human.svg", width = 12, height = 8) -->
+<!-- # # if(spcs=="mouse") svglite("output/figures/heatmap_mouse.svg", width = 12, height = 8) -->
+<!-- #  -->
+<!-- # png("output/figures/heatmap_mouse.png", units = "in", width = 10, height = 10, res = 100) -->
+<!-- #   plotMarkerHeatmap2(markerlist = plot_marker_list, # named list of lists defining which markers to show -->
+<!-- #                      expr_matrix = pat_plotting_df, # data frame that combines gene expr with metadata, each row is a single-cell -->
+<!-- #                      show_legend = T, # show color bar -->
+<!-- #                      show_annotation_legend = F, -->
+<!-- #                      show_cell_labels = F, # show sample names in heatmap (defined by rownames of expr_matrix) -->
+<!-- #                      num_markers = 16 -->
+<!-- #                      ) -->
+<!-- #   #grid.text(plot_cell_types, x=c(0.10,0.36,0.67),y=c(0.97,0.97,0.97), gp=gpar(fontsize=9, col="white", alpha = 1.0, fontface ="bold")) -->
+<!-- # dev.off() -->
+<!-- #  -->
+<!-- # ``` -->
+<!-- #  -->
+<!-- #  -->
+<!-- # ```{r plot} -->
+<!-- #  -->
+<!-- # cut = 0.6 -->
+<!-- # percentile = ecdf(qcMetrics$Macrophage) -->
+<!-- # percentile(0.6) -->
+<!-- # hist(qcMetrics$Macrophage) -->
+<!-- #  -->
+<!-- # qcMetrics = qcMetrics  %>% -->
+<!-- #   mutate(high_micro = case_when( -->
+<!-- #     Macrophage > cut ~ TRUE, -->
+<!-- #     Macrophage < cut ~ FALSE -->
+<!-- #   )) -->
+<!-- # #write.csv(qcMetrics, file = "./output/mouse_qcMetrics.csv") -->
+<!-- # high_samps = qcMetrics %>% filter(high_micro == TRUE) %>% pull(sample_id) -->
+<!-- #  -->
+<!-- # #svglite("output/figures/histcut_mouse.svg", width = 8.5, height = 6.88) -->
+<!-- #   ggplot(qcMetrics, aes(Macrophage))+ -->
+<!-- #     geom_histogram(bins = 25, fill = "royalblue3") + -->
+<!-- #     geom_vline(xintercept = cut, linetype = "dashed", size = 1) + -->
+<!-- #     #geom_text(aes(0, cut, label = paste("contam_score = ", cut, sep = ""), vjust = -20, hjust = -5)) + -->
+<!-- #     labs(x = "microglia contamination score", y = "cell count") + -->
+<!-- #     coord_flip() +  -->
+<!-- #     theme_classic() -->
+<!-- # #dev.off() -->
+<!-- #  -->
+<!-- # ``` -->
+<!-- #  -->
+<!-- # ```{r plot} -->
+<!-- #  -->
+<!-- # if(spcs=="human") samps = qcMetrics %>% filter(contam_type == "Superficial.Layers_on") %>% pull(sample_id) -->
+<!-- # if(spcs=="mouse") samps = qcMetrics %>% filter(contam_type == "Sst_on") %>% pull(sample_id)  -->
+<!-- #  -->
+<!-- # pat_contam = calcContamAllTypes(t(datPat_all+1), markers, colwise = F) %>% filter(rownames(.) %in% pat_samps) -->
+<!-- # pat_contam = pat_contam %>%  -->
+<!-- #   filter(rownames(.) %in% samps) %>% -->
+<!-- #   rownames_to_column(var = "sample_id") %>% -->
+<!-- #   mutate(colors = case_when( -->
+<!-- #     sample_id %in% high_samps ~ "royalblue3", -->
+<!-- #     TRUE ~ "grey" -->
+<!-- #   )) %>% -->
+<!-- #   column_to_rownames(var = "sample_id") -->
+<!-- # pat_contam$major_type = "Glutamatergic" -->
+<!-- # if(spcs=="human") pat_contam$contam_type = "Superficial.Layers_on" -->
+<!-- # if(spcs=="mouse") pat_contam$contam_type = "Sst_on" -->
+<!-- #  -->
+<!-- # if(spcs=="human") facs_samps = annoFACs2 %>% filter(subclass_label_new == "Superficial.Layers") %>% pull(sample_name) %>% as.character() -->
+<!-- # if(spcs=="mouse") facs_samps = annoFACs2 %>% filter(subclass_label == "Sst") %>% pull(sample_id) %>% as.character() -->
+<!-- #  -->
+<!-- # facs_superficial_contam = calcContamAllTypes(t(datFACs2[,facs_samps]+1), markers, colwise = F)  -->
+<!-- # facs_superficial_contam$colors = 'orangered3' -->
+<!-- # if(spcs=="human") facs_superficial_contam$contam_type = 'Superficial.Layers_on' -->
+<!-- # if(spcs=="mouse") facs_superficial_contam$contam_type = 'Sst_on' -->
+<!-- #  -->
+<!-- # if(spcs=="human") facs_samps = annoFACs2 %>% filter(subclass_label_new == "Microglia") %>% pull(sample_name) %>% as.character() -->
+<!-- # if(spcs=="mouse") facs_samps = annoFACs2 %>% filter(subclass_label == "Macrophage") %>% pull(sample_id) %>% as.character() -->
+<!-- #  -->
+<!-- # facs_micro_contam = calcContamAllTypes(t(datFACs2[,facs_samps]+1), markers, colwise = F)  -->
+<!-- # facs_micro_contam$colors = "royalblue3" -->
+<!-- # facs_micro_contam$contam_type = 'Macrophage' #check -->
+<!-- #  -->
+<!-- # if(spcs=="human") facs_contam = rbind(facs_superficial_contam %>% dplyr::select(Superficial.Layers_on, Microglia, colors, contam_type), -->
+<!-- #                                       facs_micro_contam %>% dplyr::select(Superficial.Layers_on, Microglia, colors, contam_type)) -->
+<!-- # if(spcs=="mouse") facs_contam = rbind(facs_superficial_contam %>% dplyr::select(Sst_on, Macrophage, colors, contam_type),  -->
+<!-- #                                       facs_micro_contam %>% dplyr::select(Sst_on, Macrophage, colors, contam_type)) -->
+<!-- #  -->
+<!-- # if(spcs=="human") svglite("output/figures/facsvspat_human.svg", width = 12, height = 7) -->
+<!-- # if(spcs=="mouse") svglite("output/figures/facsvspat_mouse.svg", width = 12, height = 7) -->
+<!-- # plotPatchSeqDissocCellMarkerExpr(patch_seq_contam_df = pat_contam, -->
+<!-- #                                  dissoc_cell_contam_df = facs_contam,  -->
+<!-- #                                  on_type = 'Sst_on', #check -->
+<!-- #                                  off_type = 'Macrophage') #check -->
+<!-- # dev.off() -->
+<!-- #  -->
+<!-- # if(spcs=="human") svglite("output/figures/facsvspat_box_human.svg", width = 10, height = 10) -->
+<!-- # if(spcs=="mouse") svglite("output/figures/facsvspat_box_mouse.svg",  width = 10, height = 10) -->
+<!-- # plotMarkerBoxplots(patch_seq_contam_df = pat_contam, -->
+<!-- #                    dissoc_cell_contam_df = facs_contam,  -->
+<!-- #                    on_type = 'Sst_on', #check -->
+<!-- #                    off_type = 'Macrophage') #check -->
+<!-- # dev.off() -->
+<!-- #  -->
+<!-- # ``` -->
 
 
 
