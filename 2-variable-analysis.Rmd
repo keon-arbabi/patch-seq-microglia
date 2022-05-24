@@ -3,6 +3,8 @@ title: "2-variable-analysis"
 author: "Keon Arbabi"
 date: "19/01/2022"
 output: html_document
+editor_options: 
+  chunk_output_type: console
 ---
 
 ```{r setup, include=FALSE}
@@ -28,6 +30,8 @@ suppressPackageStartupMessages({
   library(stringr)
   library(svglite)
   library(performance)
+  library(RColorBrewer)
+  library(ggsci)
 })
 
 ```
@@ -47,11 +51,11 @@ metadata_h = merge(metadata_h, qcMetrics_h %>% dplyr::select(c("sample_id","majo
 metadata_h = merge(metadata_h, patho_scores_h, by = "donor_id") 
 metadata_h = metadata_h %>% 
   relocate(Iba1.Cortex, .after = "Pvalb") %>% 
-  mutate(Iba1.bin = case_when(Iba1.Cortex <= 1 ~ "low",
-                              Iba1.Cortex > 1 ~ "high")) %>%
+  mutate(Iba1.bin = case_when(Iba1.Cortex <= 1 ~ "Low",
+                              Iba1.Cortex > 1 ~ "High")) %>%
   relocate(GFAP.Cortex, .after = "Iba1.bin") %>% 
-  mutate(Gfap.bin = case_when(GFAP.Cortex <= 1 ~ "low",
-                              GFAP.Cortex > 1 ~ "high"))
+  mutate(Gfap.bin = case_when(GFAP.Cortex <= 1 ~ "Low",
+                              GFAP.Cortex > 1 ~ "High"))
 metadata_h = metadata_h[colSums(!is.na(metadata_h))>0]
 rownames(metadata_h) = metadata_h$cell_specimen_name
 
@@ -68,58 +72,67 @@ metadata_h = metadata_h %>% group_by(cluster_label) %>% mutate(median_cluster_la
 
 metadata_h$cluster_label = fct_reorder(metadata_h$cluster_label, metadata_h$median_cluster_label_Microglia)
 
-p1 = metadata_h %>% ggplot(aes(x = cluster_label, 
+h1 = metadata_h %>% ggplot(aes(x = cluster_label, 
                                y = Microglia)) + 
-  geom_boxplot(outlier.color = "NA", width = 0.6, lwd = 1.0, color = "#114357") +
-  geom_jitter(alpha = 0.5, width = 0.25, shape = 16, size = 1.5, color = "#114357") +
+  geom_boxplot(outlier.color = "NA", width = 0.6, lwd = 0.8, fill = "lightgrey") +
+  geom_jitter(alpha = 0.3, width = 0.25, shape = 16, size = 1.5) +
   labs(x = "Neuron T-type") +
   theme_classic() +
-  theme(axis.text.x = element_text(angle = 30, hjust = 0.8, vjust = 0.9),
-        text = element_text(size = font_size), axis.title.y=element_blank()) +
-  stat_compare_means(method = "kruskal.test", label.y = 1, label.x = 1, size = 3)
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
+        axis.title.y = element_blank(),
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 16)) +
+  stat_compare_means(method = "kruskal.test", label.y = 1, label.x = 1.2, size = 4)
 
-p2 = metadata_h %>% ggplot(aes(x = depth_from_pia_um, y = Microglia)) + 
-  geom_point(alpha = 0.5, size = 1.5, shape = 16, color = "#114357") + 
-  geom_smooth(method = "lm", se = FALSE, color = "#114357", lwd = 1.0) +
+h2 = metadata_h %>% ggplot(aes(x = depth_from_pia_um, y = Microglia)) + 
+  geom_point(alpha = 0.3, size = 1.5, shape = 16) + 
+  geom_smooth(method = "lm", se = FALSE, lwd =  0.8) +
   labs(x = "Pial Depth, um") +
   theme_classic() +
-  theme(text = element_text(size = font_size), axis.title.y=element_blank()) +
-  stat_cor(method = "spearman", label.y = 1, size = 3)
+  theme(axis.title.y = element_blank(),
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 16)) +
+  stat_cor(method = "spearman", label.y = 1, size = 5)
 
-p3 = metadata_h %>% ggplot(aes(x = reorder(Iba1.bin, Iba1.Cortex), y = Microglia)) + 
-  geom_boxplot(outlier.color = "NA", width = 0.6, lwd = 1.0, color = "#114357") + 
-  geom_jitter(alpha = 0.5, width = 0.25, shape = 16, size = 1.5, color = "#114357") +
+h3 = metadata_h %>% ggplot(aes(x = reorder(Iba1.bin, Iba1.Cortex), y = Microglia)) + 
+  geom_boxplot(outlier.color = "NA", width = 0.6, lwd =  0.8, fill = "lightgrey") +
+  geom_jitter(alpha = 0.3, width = 0.25, shape = 16, size = 1.5) +
   labs(x = "IBA1 Protein") +
   theme_classic() +
-  theme(text = element_text(size = font_size), axis.title.y=element_blank()) +
-  stat_compare_means(method = "wilcox", label.y = 1, label.x = 0.8, size = 3)
+  theme(axis.title.y = element_blank(), 
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 16)) +
+  stat_compare_means(method = "wilcox", label.y = 1, label.x = 0.95, size = 4)
 
-p4 = metadata_h %>% drop_na(Gfap.bin) %>%
+h4 = metadata_h %>% drop_na(Gfap.bin) %>%
   ggplot(aes(x = reorder(Gfap.bin, GFAP.Cortex), y = Microglia)) + 
-  geom_boxplot(outlier.color = "NA", width = 0.6, lwd = 1.0, color = "#114357") + 
-  geom_jitter(alpha = 0.5, width = 0.25, shape = 16, size = 1.5, color = "#114357") +
+  geom_boxplot(outlier.color = "NA", width = 0.6, lwd =  0.8, fill = "lightgrey") +
+  geom_jitter(alpha = 0.3, width = 0.25, shape = 16, size = 1.5) +
   labs(x = "GFAP Protein") +
   theme_classic() +
-  theme(text = element_text(size = font_size), axis.title.y=element_blank()) +
-  stat_compare_means(method = "wilcox", label.y = 1, label.x = 0.8, size = 3)
+  theme(axis.title.y = element_blank(),
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 16)) +
+  stat_compare_means(method = "wilcox", label.y = 1, label.x = 0.95, size = 4)
 
 metadata_h = metadata_h %>% group_by(donor_id) %>% mutate(median_donor_id_Microglia = median(Microglia), cells_per_donor = n()) %>% ungroup()
 metadata_h$donor_id = fct_reorder(metadata_h$donor_id, metadata_h$median_donor_id_Microglia)
 
-p5 = metadata_h %>% filter(cells_per_donor > 2) %>% ggplot(aes(x = donor_id, 
-                               y = Microglia)) + 
-  geom_boxplot(outlier.color = "NA", width = 0.6, lwd = 1.0, color = "#114357") +
-  geom_jitter(alpha = 0.5, width = 0.25, shape = 16, size = 1.5, color = "#114357") +
+h5 = metadata_h %>% filter(cells_per_donor > 2) %>% ggplot(aes(x = donor_id, y = Microglia)) + 
+  geom_boxplot(outlier.color = "NA", width = 0.6, lwd =  0.8, fill = "lightgrey") +
+  geom_jitter(alpha = 0.3, width = 0.25, shape = 16, size = 1.5) +
   labs(x = "Donor ID", y = "Microglia Score") +
   theme_classic() +
-  theme(axis.text.x = element_text(angle = 30, hjust = 0.8, vjust = 0.9),
-        text = element_text(size = font_size)) +
-  stat_compare_means(method = "kruskal.test", label.y = 1, label.x = 3.5, size = 3)
+  theme(
+        axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
+        #axis.text.x = element_blank(),
+        #axis.ticks = element_blank(),
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 16)) +
+  stat_compare_means(method = "kruskal.test", label.y = 1, label.x = 3.5, size = 4)
 
-svglite("output/figures/univar_human.svg", width = 20, height = 8)
-human_univar_plots = plot_grid(p5, p1, p4, p3, nrow = 1, align = "h", rel_widths = c(2,1.25,1,1))
+human_univar_plots = plot_grid(h5, h1, h4, h3, nrow = 1, align = "h", rel_widths = c(3,2,1,1))
 human_univar_plots
-dev.off()
 
 ```
 
@@ -135,7 +148,6 @@ categorical_vars = c("hemisphere","biological_sex","medical_conditions","cluster
 metadata_h_filt[,categorical_vars] = lapply(metadata_h_filt[,categorical_vars], factor)
 
 #ggpairs(metadata_h_filt[c(continous_vars,categorical_vars)], cardinality_threshold = 30)
-#categorical_compare(metadata_h_filt[,categorical_vars])
 
 # full model
 form_full = Microglia ~ biological_sex + scale(age) + medical_conditions + scale(depth_from_pia_um) + cluster_label + Iba1.bin + Gfap.bin + (1|donor_id)
@@ -169,7 +181,6 @@ res = lapply(c('biological_sex', 'scale(age)', 'medical_conditions','scale(depth
 })
 
 res = do.call(rbind, res)
-res$variable = factor(res$variable, levels = c(levels(res$variable), 'donor_id'))
 
 res = rbind(res, c("donor_id", rep(random_rsq, ncol(res)-1)))
 res[,2:7] = sapply(res[, 2:7], as.numeric)
@@ -190,9 +201,7 @@ qcMetrics_m = read.csv(file = here("output","mouse_qcMetrics.csv"))
 
 metadata_m = fread(file = here("data","patchseq","20200625_patchseq_metadata_mouse.csv"), data.table = FALSE) %>%
   dplyr::rename(sample_id = transcriptomics_sample_id)
-metadata_m = merge(metadata_m, qcMetrics_m %>% dplyr::select(c("sample_id","major_type","contam_type","quality_score","Macrophage")), by = "sample_id")
-metadata_m = dplyr::rename(metadata_m, Microglia = Macrophage)
-metadata_m$Microglia = range01(metadata_m$Microglia)
+metadata_m = merge(metadata_m, qcMetrics_m %>% dplyr::select(c("sample_id","major_type","contam_type","quality_score","Microglia")), by = "sample_id")
 metadata_m = metadata_m[colSums(!is.na(metadata_m))>0]
 rownames(metadata_m) = metadata_m$sample_id
 
@@ -218,40 +227,49 @@ metadata_m = metadata_m %>% group_by(cluster_label) %>% mutate(median_cluster_la
 metadata_m$corresponding_AIT2.3.1_alias = fct_reorder(metadata_m$corresponding_AIT2.3.1_alias, metadata_m$median_t_type_Microglia)
 metadata_m$cluster_label = fct_reorder(metadata_m$cluster_label, metadata_m$median_cluster_label_Microglia)
 
+pal = c("red","gold","green","blue","purple","orange")
+pal = pal_locuszoom()(7)
+scales::show_col(pal)
 
-mouse_t_type_plot = metadata_m %>% ggplot(aes(x = corresponding_AIT2.3.1_alias, y = Microglia, fill = cluster_label)) + 
-  geom_boxplot(outlier.color = "NA", width = 0.6, lwd = 1.0, color = "#114357") +
-  geom_jitter(alpha = 0.05, width = 0.25, shape = 16, size = 1.5, color = "#114357") +
-  labs(y = "Microglia Score", fill = "Subclass") +
+m1 = metadata_m %>% ggplot(aes(x = corresponding_AIT2.3.1_alias, y = Microglia, fill = cluster_label)) + 
+  geom_boxplot(outlier.color = "NA", width = 0.6, lwd = 0.8) +
+  geom_jitter(alpha = 0.05, width = 0.25, shape = 16, size = 1.5) +
+  labs(y = "", x = "Cluster T-type") +
+  scale_fill_locuszoom() +
+  #scale_fill_manual(values = pal) +
   theme_classic() +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .8, size = font_size - 2),
-        text = element_text(size = font_size), axis.title.x=element_blank(), legend.position="none") +
-  stat_compare_means(method = "kruskal.test", label.y = 1, label.x = 4, size = 3)
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
+        #axis.title.x = element_blank(), 
+        legend.position = "none", 
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 16)) +
+  stat_compare_means(method = "kruskal.test", label.y = 1, label.x = 3, size = 4)
 
-mouse_subclass_plot = metadata_m %>% ggplot(aes(x = cluster_label, y = Microglia, fill = cluster_label)) + 
-  geom_boxplot(outlier.color = "NA", width = 0.6, lwd = 1.0, color = "#114357") +
-  geom_jitter(alpha = 0.05, width = 0.25, shape = 16, size = 1.5, color = "#114357") +
-  labs(y = "Microglia Score", fill = "Subclass") +
+m2 = metadata_m %>% ggplot(aes(x = cluster_label, y = Microglia, fill = cluster_label)) + 
+  geom_boxplot(outlier.color = "NA", width = 0.6, lwd = 0.8) +
+  geom_jitter(alpha = 0.05, width = 0.25, shape = 16, size = 1.5) +
+  labs(y = "Microglia Score", x = "Subclass T-type") +
+  scale_fill_locuszoom() +
+  #scale_fill_manual(values = pal) +
   theme_classic() +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .8, size = font_size - 2),
-        text = element_text(size = font_size), axis.title.x=element_blank(), legend.position="none") +
-  stat_compare_means(method = "kruskal.test", label.y = 1, label.x = 1.5, size = 3)
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
+        #axis.title.x = element_blank(), 
+        legend.position = "none", 
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 16)) +
+  stat_compare_means(method = "kruskal.test", label.y = 1, label.x = 1.5, size = 4)
 
-p2 = metadata_m %>% ggplot(aes(x = cell_soma_normalized_depth, y = Microglia)) + 
-  geom_point(size = 1.5, shape = 16, color = "#114357") + 
-  geom_smooth(method = "lm", se = FALSE, color = "#114357", lwd = 1.0) +
+m3 = metadata_m %>% ggplot(aes(x = cell_soma_normalized_depth, y = Microglia)) + 
+  geom_point(size = 1.5, shape = 16, color = "black") + 
+  geom_smooth(method = "lm", se = FALSE, color = "black", lwd = 1.0) +
   labs(x = "Cell Soma Normalized\nDepth (N = 696)", y = "") +
   theme_classic() +
-  theme(text = element_text(size = font_size)) +
   stat_cor(method = "spearman", label.y = 1, size = 5)
 
-svglite("output/figures/univar_mouse.svg", width = 11.11, height = 8)
-mouse_univar_plot = plot_grid(mouse_subclass_plot, mouse_t_type_plot, nrow = 1, align = "h", rel_widths = c(1, 3))
-dev.off()
-  
+mouse_univar_plot = plot_grid(m2, m1, nrow = 1, align = "h", rel_widths = c(2, 5))
+mouse_univar_plot
+
 ```
-
-
 
 ## mixed effects models 
 ```{r}
@@ -303,8 +321,6 @@ res = lapply(c('biological_sex', 'scale(age)', 'corresponding_AIT2.3.1_alias'), 
 })
 res = do.call(rbind, res)
 
-res$variable = factor(res$variable, levels = c(levels(res$variable), 'donor_id'))
-
 res = rbind(res, c("donor_id", rep(random_rsq, ncol(res)-1)))
 res[,2:7] = sapply(res[, 2:7], as.numeric)
 res$variable = factor(res$variable,
@@ -316,10 +332,10 @@ res_m = res
 res = rbind(res_h, res_m)
 #res$variable = str_wrap(res$variable, width = 30)
 
-var_exp_human_mouse_plot = res %>%
+mixed_model_plot = res %>%
   mutate(variable = reorder_within(variable, fm_tm, group)) %>%
   ggplot(aes(x = variable, y = fm_tm)) + 
-  geom_col(color = "#114357", fill = "#ffffff", lwd = 1.0, show.legend = FALSE) +
+  geom_col(color = "black", fill = "lightgrey", lwd = 0.8, show.legend = FALSE) +
   facet_grid(vars(group), scales = "free", space = "free")+
   coord_flip() +
   scale_x_reordered() +
@@ -327,23 +343,23 @@ var_exp_human_mouse_plot = res %>%
   ylim(0, 0.30) +
   labs(y = "Variance Explained (R-squared)") +
   theme_classic() +
-  theme(text = element_text(size = font_size), axis.title.y=element_blank()) 
-  
-svglite("output/figures/mixedeffects.svg", width = 7, height = 7)
-var_exp_human_mouse_plot
-dev.off()
+  theme(axis.title.y = element_blank(), 
+        strip.text = element_text(size = 16),
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 16))
+mixed_model_plot
 
 ```
 
 
-## combined plot
+# combined plot
 ```{r}
 
-svglite("output/figures/mixedeffects.svg", width = 10, height = 8)
-combined_plot = plot_grid(human_univar_plots, mouse_univar_plot, var_exp_human_mouse_plot, 
-          nrow = 3, rel_heights = c(1, 1.25, 1))
-combined_plot
-dev.off()
+plot_grid(human_univar_plots, mouse_univar_plot, mixed_model_plot,
+          nrow = 3, ncol = 1, align = "none", rel_heights = c(1,1,0.8), scale = 0.9)
+
+ggsave(filename = "./output/figure_2.svg", device = "svg", width = 14, height = 17, units = "in", dpi = 500, limitsize = F)
+
 
 ```
 # appendix
