@@ -346,6 +346,7 @@ mixed_model_plot = res %>%
   theme(axis.title.y = element_blank(), 
         strip.text = element_text(size = 16),
         axis.text = element_text(size = 12),
+        axis.text.y = element_text(size = 16),
         axis.title = element_text(size = 16))
 mixed_model_plot
 
@@ -358,12 +359,12 @@ mixed_model_plot
 plot_grid(human_univar_plots, mouse_univar_plot, mixed_model_plot,
           nrow = 3, ncol = 1, align = "none", rel_heights = c(1,1,0.8), scale = 0.9)
 
-ggsave(filename = "./output/figure_2.svg", device = "svg", width = 14, height = 17, units = "in", dpi = 500, limitsize = F)
+ggsave(filename = "./output/figure_2a.svg", device = "svg", width = 16, height = 17, units = "in", dpi = 500, limitsize = F)
 
 
 ```
-# appendix
 
+# appendix
 ```{r}
 
 # metadata_h_filt = metadata_h %>% 

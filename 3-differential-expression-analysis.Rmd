@@ -111,7 +111,7 @@ plot_enrichments_2 = function(res, title, rlimit){
   p = ggplot(res, aes(x = label, y = fdr, size = log10(geneset), color = group)) +
     geom_point(alpha = 0.8, shape = 16) +
     scale_size(range = c(5, 13)) +
-    scale_color_manual(values = c("reference" = "lightgrey", "patchseq" = "#D43F3AFF"), ) +
+    scale_color_manual(values = c("reference" = "#357EBDFF", "patchseq" = "#D43F3AFF"), ) +
     labs(title = title, x = "", y = "FDR", color = "") +
     coord_flip() +
     #scale_x_discrete(labels = function(x) str_wrap(x, width = 25)) +
@@ -169,10 +169,11 @@ metadata_h = metadata_h[colSums(!is.na(metadata_h))>0]
 rownames(metadata_h) = metadata_h$sample_id
 
 # patch-seq mouse
-metadata_m = fread(file = here("data","patchseq","20200625_patchseq_metadata_mouse.csv"), data.table = FALSE)
+metadata_m = fread(file = here("data","patchseq","20200625_patchseq_metadata_mouse.csv"), data.table = FALSE) %>%
+    filter(!corresponding_AIT2.3.1_alias == "")
 matrix_m = fread(file = here("local","20200513_Mouse_PatchSeq_Release_count.v2","20200513_Mouse_PatchSeq_Release_count.v2.csv"), data.table = FALSE) %>%
   dplyr::rename(gene = 1) %>%
-  column_to_rownames(var = "gene") 
+  column_to_rownames(var = "gene")
 matrix_m = matrix_m[grep("^LOC|^MT-|^RP[0-9]|^BC[0-9]|-PS", rownames(matrix_m), invert=T),]
 metadata_m = dplyr::rename(metadata_m, sample_id = transcriptomics_sample_id)
 
@@ -367,7 +368,7 @@ de_h = de_h %>%
   mutate(label = case_when(gene %in% c(de_h_up, de_h_down) ~ gene))
 
 #cols = c("UP" = "red", "DIFF" = "purple", "DOWN" = "blue", "NO" = "lightgrey")
-cols = c("UP" = "#D43F3AFF", "DIFF" = "#9632B8FF", "DOWN" = "#357EBDFF", "NO" = "lightgrey")
+cols = c("UP" = "#9632B8FF", "DIFF" = "#D28212", "DOWN" = "#357EBDFF", "NO" = "lightgrey")
 
 human_vol_p = ggplot(de_h, aes(x = avg_log2FC, y = -log10(p_val), color = color, label = label)) +
   geom_point(shape = 16, alpha = 1) + 
@@ -387,10 +388,12 @@ human_vol_p = ggplot(de_h, aes(x = avg_log2FC, y = -log10(p_val), color = color,
         axis.title = element_text(size = 16))
 human_vol_p
 
-# check
-markers_h = read.csv(file = here("data","markers","human_MTG_markers.csv"))
-paste(length(intersect(markers_h$Microglia, de_h_up)), length(markers_h$Microglia), sep = "/")
-paste(length(intersect(markers_h$Microglia, de_h_ref_up)), length(markers_h$Microglia), sep = "/")
+#write.csv(de_h, file = "./output/de_h_anno.csv")
+
+# # check
+# markers_h = read.csv(file = here("data","markers","human_MTG_markers.csv"))
+# paste(length(intersect(markers_h$Microglia, de_h_up)), length(markers_h$Microglia), sep = "/")
+# paste(length(intersect(markers_h$Microglia, de_h_ref_up)), length(markers_h$Microglia), sep = "/")
 
 ```
 
@@ -456,7 +459,7 @@ signatures = list(patch_seq = de_h_up,
 
 o_clusters = read.csv(file = here("local","Olah_2020","Olah_cluster_de.csv"))
 o_clusters$up_type = as.factor(o_clusters$up_type)
-o_clusters = filter(o_clusters, num_down_types > 3)
+o_clusters = filter(o_clusters, num_down_types > 6)
 o_clusters = merge(o_clusters, de_h[,-c(7,8)], by = "gene", all.x = T)
 o_clusters = o_clusters[complete.cases(o_clusters),]
 
@@ -480,7 +483,7 @@ rownames(res) = NULL
 order = res %>% filter(group == "patchseq") %>% arrange(desc(fdr)) %>% pull(label)
 res$label = factor(res$label, levels = order)
 
-human_olah_p = plot_enrichments_2(res, "Olah et al. 2020", 1e-65)
+human_olah_p = plot_enrichments_2(res, "Olah et al. 2020", 1e-50)
 human_olah_p
 
 ```
@@ -661,7 +664,7 @@ de_m = de_m %>%
   mutate(label_pat = case_when(color == "DIFF" ~ gene)) %>%
   mutate(label_ref = case_when(color == "UP" ~ gene))
 
-cols = c("UP" = "#D43F3AFF", "DIFF" = "#9632B8FF", "DOWN" = "#357EBDFF", "NO" = "lightgrey")
+cols = c("UP" = "#9632B8FF", "DIFF" = "#D28212", "DOWN" = "#357EBDFF", "NO" = "lightgrey")
 
 mouse_vol_p = ggplot(de_m, aes(x = avg_log2FC, y = -log10(p_val), color = color)) +
   geom_point(shape = 16, alpha = 1) + 
@@ -682,6 +685,8 @@ mouse_vol_p = ggplot(de_m, aes(x = avg_log2FC, y = -log10(p_val), color = color)
         axis.text = element_text(size = 12),
         axis.title = element_text(size = 16))
 mouse_vol_p
+
+#write.csv(de_m, file = "./output/de_m_anno.csv")
 
 ```
 
@@ -717,7 +722,7 @@ signatures = list(patch_seq = de_m_up,
 
 o_clusters = read.csv(file = here("local","Olah_2020","Olah_cluster_de.csv"))
 o_clusters$up_type = as.factor(o_clusters$up_type)
-o_clusters = filter(o_clusters, num_down_types > 3)
+o_clusters = filter(o_clusters, num_down_types > 6)
 
 mouse_list = .convertHumanGeneList(o_clusters$gene)
 names(mouse_list)[1] = "gene"
@@ -746,7 +751,7 @@ rownames(res) = NULL
 order = res %>% filter(group == "patchseq") %>% arrange(desc(fdr)) %>% pull(label)
 res$label = factor(res$label, levels = order)
 
-mouse_olah_p = plot_enrichments_2(res, "", 1e-65)
+mouse_olah_p = plot_enrichments_2(res, "", 1e-50)
 mouse_olah_p
 
 ```
@@ -849,7 +854,7 @@ plot_enrichments_1(plot_res)
 
 plot_grid(human_vol_p, mouse_vol_p,
           nrow = 2, ncol = 1, align = "none", axis = "tblr", rel_heights = c(1,1))
-ggsave(filename = "./output/figure_3a.svg", device = "svg", width = 9, height = 11, units = "in", dpi = 500, limitsize = F)
+#ggsave(filename = "./output/figure_3a.svg", device = "svg", width = 9, height = 11, units = "in", dpi = 500, limitsize = F)
 
 ggarrange(human_friedman_p, NULL, human_olah_p, NULL, human_dam_p,
           mouse_friedman_p, NULL, mouse_olah_p, NULL, mouse_dam_p,

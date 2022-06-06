@@ -113,10 +113,10 @@ if(file.exists("./local/mouse_VISp_FACs/mouse_VISp_2018-06-14_readme.txt") == FA
   unzip(d, exdir = "./local")
   
   # read the data into R. *This step is slow*  
-  exons = read.csv(file = here("local","mouse_VISp_2018-06-14_exon-matrix.csv"), row.names = 1)
-  introns = read.csv(file = here("local","mouse_VISp_2018-06-14_intron-matrix.csv"), row.names = 1)
-  geneInfo = read.csv(file = here("local","mouse_VISp_2018-06-14_genes-rows.csv"), row.names = 1)
-  sampInfo = read.csv(file = here("local","mouse_VISp_2018-06-14_samples-columns.csv"), row.names = 1)
+  exons = read.csv(file = here("local", "mouse_VISp_FACs", "mouse_VISp_2018-06-14_exon-matrix.csv"), row.names = 1)
+  introns = read.csv(file = here("local", "mouse_VISp_FACs", "mouse_VISp_2018-06-14_intron-matrix.csv"), row.names = 1)
+  geneInfo = read.csv(file = here("local", "mouse_VISp_FACs", "mouse_VISp_2018-06-14_genes-rows.csv"), row.names = 1)
+  sampInfo = read.csv(file = here("local", "mouse_VISp_FACs", "mouse_VISp_2018-06-14_samples-columns.csv"), row.names = 1)
   
   # convert the meta-data files into formats consistent with the rest of the analysis
   sampInfo[is.na(sampInfo)] = 0
@@ -308,7 +308,7 @@ pat_df = merge(pat_df, tmp, by = "sample_id", all.y = FALSE)
 range01 = function(x){(x-min(x))/(max(x)-min(x))}
 
 # calculate 
-qcMetrics = calculatePatchSeqQCMetrics2(pat_df, facs_df,markers)
+qcMetrics = calculatePatchSeqQCMetrics2(pat_df, facs_df, markers)
 # NMS score of 0.4 as a pass/fail call
 qcMetrics$QC_pass = c(TRUE,FALSE)[(qcMetrics$marker_sum_norm<0.40)+1]
 if(spcs == "mouse") qcMetrics = dplyr::rename(qcMetrics, Microglia = Macrophage)
@@ -589,7 +589,7 @@ mouse_contam_p = ggplot() +
 mouse_contam_p
 
 #rm(list = setdiff(ls(), c("human_heatmap_p","mouse_heatmap_p","contam_dist_p")))
-save(human_heatmap_p, mouse_heatmap_p, human_contam_p, mouse_contam_p, file =  "./output/qc_figs.RData")
+#save(human_heatmap_p, mouse_heatmap_p, human_contam_p, mouse_contam_p, file =  "./output/qc_figs.RData")
 
 # contam_dist_p = ggplot(comb_qc, aes(x = Group, y = Microglia, fill = Group)) +
 #   geom_violin() +
@@ -602,35 +602,84 @@ save(human_heatmap_p, mouse_heatmap_p, human_contam_p, mouse_contam_p, file =  "
 
 ```
 
+# supplementary figures
+```{r}
+
+if(spcs=="human") samps = qcMetrics %>% filter(contam_type == "Superficial.Layers_on") %>% pull(sample_id)
+if(spcs=="mouse") samps = qcMetrics %>% filter(contam_type == "Sst_on") %>% pull(sample_id)
+
+pat_contam = calcContamAllTypes(t(datPat_all+1), markers, colwise = F) %>% filter(rownames(.) %in% pat_samps)
+pat_contam = pat_contam %>%
+  filter(rownames(.) %in% samps) %>%
+  rownames_to_column(var = "sample_id") %>%
+  column_to_rownames(var = "sample_id")
+pat_contam$major_type = "Glutamatergic"
+if(spcs=="human") pat_contam$contam_type = "Superficial.Layers_on"
+if(spcs=="mouse") pat_contam$contam_type = "Sst_on"
+
+if(spcs=="human") facs_samps = annoFACs2 %>% filter(subclass_label_new == "Superficial.Layers") %>% pull(sample_name) %>% as.character()
+if(spcs=="mouse") facs_samps = annoFACs2 %>% filter(subclass_label == "Sst") %>% pull(sample_id) %>% as.character()
+
+facs_neuro_contam = calcContamAllTypes(t(datFACs2[,facs_samps]+1), markers, colwise = F)
+if(spcs=="human") facs_neuro_contam$contam_type = 'Superficial.Layers_on'
+if(spcs=="mouse") facs_neuro_contam$contam_type = 'Sst_on'
+
+if(spcs=="human") facs_samps = annoFACs2 %>% filter(subclass_label_new == "Microglia") %>% pull(sample_name) %>% as.character()
+if(spcs=="mouse") facs_samps = annoFACs2 %>% filter(subclass_label == "Macrophage") %>% pull(sample_id) %>% as.character()
+
+facs_micro_contam = calcContamAllTypes(t(datFACs2[,facs_samps]+1), markers, colwise = F)
+facs_micro_contam$contam_type = 'Microglia' 
+
+if(spcs=="human") facs_contam = rbind(facs_neuro_contam %>% dplyr::select(Superficial.Layers_on, Microglia, contam_type),
+                                      facs_micro_contam %>% dplyr::select(Superficial.Layers_on, Microglia, contam_type))
+if(spcs=="mouse") facs_contam = rbind(facs_neuro_contam %>% dplyr::select(Sst_on, Macrophage, contam_type),
+                                      facs_micro_contam %>% dplyr::select(Sst_on, Macrophage, contam_type))
+
+if(spcs=="human") on_type = 'Superficial.Layers_on' 
+if(spcs=="human") off_type = 'Microglia' 
+if(spcs=="mouse") on_type = 'Sst_on'
+if(spcs=="mouse") off_type = 'Macrophage' 
+
+subclasses = unique(facs_contam$contam_type)
+
+facs_contam = facs_contam %>%
+  dplyr::select(c(on_type, off_type,"contam_type")) %>%
+  mutate(group = case_when(contam_type == subclasses[1] ~ "ref_on",
+                           contam_type == subclasses[2] ~ "ref_off"))
+
+pat_contam = pat_contam %>%
+  dplyr::select(c(on_type,off_type,"contam_type")) %>%
+  mutate(group = "pat")
+
+plot_df = rbind(facs_contam, pat_contam) %>%
+  rownames_to_column(var = "sample") %>%
+  pivot_longer(cols = c(2,3), names_to = "Markers", values_to = "expression")
+plot_df$expression = log2(plot_df$expression+1)
+if(spcs=="human") plot_df$Markers = factor(plot_df$Markers, levels = c("Microglia", "Superficial.Layers_on"), labels = c("Microglia", "Superficial Neurons")) 
+if(spcs=="mouse") plot_df$Markers = factor(plot_df$Markers, levels = c("Macrophage", "Sst_on"), labels = c("Microglia", "SST Neurons")) 
+plot_df$group = factor(plot_df$group,
+                       levels = c("ref_on","ref_off","pat"),
+                       labels = c("reference\nSST neurons","reference\nmicroglia","patchseq\nSST neurons"))
+
+dodge = position_dodge(width = 0.4)
+
+mouse_facs_pat_violin = ggplot(plot_df, aes(x = group, y = expression, fill = Markers))+
+  geom_violin(trim = F, position = dodge, width = 0.6, scale = "width", alpha = 0.3) +
+  geom_boxplot(width = .2, outlier.color = NA, position = dodge, alpha = 0.5) +
+  scale_fill_manual(values = c(pal[18], pal[3])) +
+  labs(x = "", y = "Marker Expression (Log2(CPM+1)") +
+  theme_classic() +
+  theme(legend.position = "right",
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 16)) 
+  
+mouse_facs_pat_violin
+
+ggarrange(human_facs_pat_violin, mouse_facs_pat_violin, nrow = 1, common.legend = T, legend = "right")
+ggsave(filename = "./output/figure_sup_1.svg", device = "svg", width = 14, height = 8, units = "in", dpi = 500, limitsize = F)
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+```
 
 
 
@@ -639,18 +688,18 @@ save(human_heatmap_p, mouse_heatmap_p, human_contam_p, mouse_contam_p, file =  "
 
  
 <!-- # ```{r plot_functions} -->
-<!-- #  -->
+<!-- # -->
 <!-- # # sets colors for cell types -->
 <!-- # ann_colors = list(Markers = c(Superficial.Layers = "orangered3", Superficial.Layers_on = "orangered3", Sst_on = "orangered3", Microglia = "royalblue3", -->
 <!-- #                               Macrophage = "royalblue3", Astro = "springgreen3", Astrocyte = "springgreen3"), -->
 <!-- #                   CellTypes = c(Superficial.Layers = "orangered3", Superficial.Layers_on = "orangered3", Sst_on = "orangered3", Microglia = "royalblue3", -->
 <!-- #                               Macrophage = "royalblue3", Astro = "springgreen3", Astrocyte = "springgreen3")) -->
-<!-- #  -->
+<!-- # -->
 <!-- # plotMarkerHeatmap2 = function(markerlist, expr_matrix, show_legend = T, show_annotation_legend = T, show_cell_labels = F, num_markers = 15){ -->
-<!-- #  -->
+<!-- # -->
 <!-- #   trimmed_marker_list = lapply(markerlist, function(l) l %>% getValidGenes(., colnames(expr_matrix)) %>% make.names() %>% head(num_markers)) -->
 <!-- #   markers_count = lapply(trimmed_marker_list, function(l) length(l)) %>% unlist -->
-<!-- #    -->
+<!-- # -->
 <!-- #   order_markers = sapply(trimmed_marker_list, simplify = T, function(l){ -->
 <!-- #     tmp = expr_matrix[,l] -->
 <!-- #     tmp = tmp[,order(colMeans(tmp), decreasing = T)] -->
@@ -661,36 +710,36 @@ save(human_heatmap_p, mouse_heatmap_p, human_contam_p, mouse_contam_p, file =  "
 <!-- #     tmp = tmp[order(rowMeans(tmp), decreasing = T),] -->
 <!-- #     rownames(tmp) -->
 <!-- #   }) -->
-<!-- #  -->
+<!-- # -->
 <!-- #   all_trimmed_markers = unlist(trimmed_marker_list) %>% as.character() -->
 <!-- #   expr_mat = expr_matrix[, all_trimmed_markers] -->
 <!-- #   expr_mat = expr_mat[order_samps[,2], order_markers] -->
-<!-- #    -->
+<!-- # -->
 <!-- #   gaps_col = cumsum(rep(ncol(expr_mat)/3, 3)) -->
-<!-- #  -->
+<!-- # -->
 <!-- #   annotation_col = data.frame(Markers = factor(rep(names(markers_count), markers_count), levels = names(markers_count))) -->
 <!-- #   rownames(annotation_col) = colnames(expr_mat) -->
-<!-- #  -->
+<!-- # -->
 <!-- #   MAXLOGEXPR = 12 -->
 <!-- #   breaksList = seq(0, MAXLOGEXPR, by = 1) -->
-<!-- #  -->
+<!-- # -->
 <!-- #   expr_mat[expr_mat > 2^MAXLOGEXPR] = 2^MAXLOGEXPR -->
 <!-- #   #expr_mat = t(expr_mat) -->
-<!-- #    -->
+<!-- # -->
 <!-- #   ann_colors_current = list() -->
 <!-- #   ann_colors_current$Markers = ann_colors$Markers[names(markers_count)] -->
 <!-- #   ann_colors_current$CellTypes = ann_colors$CellTypes[unique(expr_matrix$contam_type)] -->
-<!-- #  -->
+<!-- # -->
 <!-- #   plot_heatmap = pheatmap::pheatmap(expr_mat %>% log2, -->
-<!-- #                                     cluster_rows=F,  -->
-<!-- #                                     cluster_cols=F,  -->
-<!-- #                                     gaps_col = gaps_col,  -->
+<!-- #                                     cluster_rows=F, -->
+<!-- #                                     cluster_cols=F, -->
+<!-- #                                     gaps_col = gaps_col, -->
 <!-- #                                     #annotation_colors = ann_colors_current, -->
-<!-- #                                     #annotation_col = annotation_col,  -->
-<!-- #                                     annotation_names_col = F,  -->
+<!-- #                                     #annotation_col = annotation_col, -->
+<!-- #                                     annotation_names_col = F, -->
 <!-- #                                     show_rownames = show_cell_labels, -->
 <!-- #                                     angle_col = 90, -->
-<!-- #                                     breaks = breaksList,  -->
+<!-- #                                     breaks = breaksList, -->
 <!-- #                                     color = colorRampPalette(rev(RColorBrewer::brewer.pal(n = 11, name = "RdYlBu")))(length(breaksList)), -->
 <!-- #                                     border_color = NA, -->
 <!-- #                                     fontsize = 18, -->
@@ -698,7 +747,7 @@ save(human_heatmap_p, mouse_heatmap_p, human_contam_p, mouse_contam_p, file =  "
 <!-- #                                     annotation_legend = show_annotation_legend -->
 <!-- #   ) -->
 <!-- # } -->
-<!-- #  -->
+<!-- # -->
 <!-- # plotPatchSeqDissocCellMarkerExpr = function(patch_seq_contam_df, -->
 <!-- #                                             dissoc_cell_contam_df, -->
 <!-- #                                             on_type, -->
@@ -707,19 +756,19 @@ save(human_heatmap_p, mouse_heatmap_p, human_contam_p, mouse_contam_p, file =  "
 <!-- # x_max = max(dissoc_cell_contam_df[, on_type], patch_seq_contam_df[, on_type]) + 0 -->
 <!-- # y_min_1 = min(c(dissoc_cell_contam_df[, off_type], patch_seq_contam_df[,off_type], dissoc_cell_contam_df[,off_type])) - 0 -->
 <!-- # y_max_1 = max(c(dissoc_cell_contam_df[,off_type], patch_seq_contam_df[,off_type], dissoc_cell_contam_df[,off_type])) + 0 -->
-<!-- #  -->
+<!-- # -->
 <!-- # PLOT_THRESHOLD = .025 -->
-<!-- #  -->
+<!-- # -->
 <!-- # aibs_pyr = dissoc_cell_contam_df %>% dplyr::filter(contam_type == off_type) %>% dplyr::select(off_type) %>% unlist -->
 <!-- # aibs_pyr_low = aibs_pyr %>% quantile(PLOT_THRESHOLD) -->
 <!-- # aibs_pyr_high = aibs_pyr %>% quantile(1-PLOT_THRESHOLD) -->
 <!-- # aibs_ndnf = dissoc_cell_contam_df %>% dplyr::filter(contam_type == on_type) %>% dplyr::select(on_type) %>% unlist -->
 <!-- # aibs_ndnf_low = aibs_ndnf %>% quantile(PLOT_THRESHOLD) -->
 <!-- # aibs_ndnf_high = aibs_ndnf %>% quantile(1-PLOT_THRESHOLD) -->
-<!-- #  -->
+<!-- # -->
 <!-- # p1 = ggplot(dissoc_cell_contam_df %>% dplyr::filter(contam_type %in% c(on_type, off_type)), -->
 <!-- #             aes_string(x = on_type, y = off_type, color = 'colors')) + -->
-<!-- #   geom_hline(yintercept = aibs_pyr_high, color = 'royalblue3', linetype = 2, alpha = .8, size = 1) +  -->
+<!-- #   geom_hline(yintercept = aibs_pyr_high, color = 'royalblue3', linetype = 2, alpha = .8, size = 1) + -->
 <!-- #   geom_hline(yintercept = aibs_pyr_low, color = 'royalblue3', linetype = 2, alpha = .8, size = 1) + -->
 <!-- #   geom_vline(xintercept = aibs_ndnf_high, color = 'orangered3', linetype = 2, alpha = .8, size = 1) + -->
 <!-- #   geom_vline(xintercept = aibs_ndnf_low, color = 'orangered3', linetype = 2, alpha = .8, size = 1) + -->
@@ -728,86 +777,86 @@ save(human_heatmap_p, mouse_heatmap_p, human_contam_p, mouse_contam_p, file =  "
 <!-- #   ggtitle('Reference cell data') + xlim(x_min, x_max) + ylim(y_min_1, y_max_1) + -->
 <!-- #   theme(axis.title = element_text(size = 12), axis.text = element_text(size = 10), plot.title = element_text(size = 12)) + -->
 <!-- #   theme_classic() -->
-<!-- #  -->
-<!-- # p2 = ggplot(patch_seq_contam_df,  -->
+<!-- # -->
+<!-- # p2 = ggplot(patch_seq_contam_df, -->
 <!-- #             aes_string(x = on_type, y = off_type, color = 'colors')) + -->
-<!-- #   geom_hline(yintercept = aibs_pyr_high, color = 'royalblue3', linetype = 2, alpha = .8, size = 1) +  -->
+<!-- #   geom_hline(yintercept = aibs_pyr_high, color = 'royalblue3', linetype = 2, alpha = .8, size = 1) + -->
 <!-- #   geom_hline(yintercept = aibs_pyr_low, color = 'royalblue3', linetype = 2, alpha = .8, size = 1) + -->
-<!-- #   geom_vline(xintercept = aibs_ndnf_high, color = 'orangered3', linetype = 2, alpha = .8, size = 1) +  -->
+<!-- #   geom_vline(xintercept = aibs_ndnf_high, color = 'orangered3', linetype = 2, alpha = .8, size = 1) + -->
 <!-- #   geom_vline(xintercept = aibs_ndnf_low, color = 'orangered3', linetype = 2, alpha = .8, size = 1) + -->
 <!-- #   geom_point() + scale_color_identity() + -->
 <!-- #   xlab(paste(on_type, 'markers (log2 CPM+1)')) + ylab(paste(off_type, 'markers (log2 CPM+1)')) + -->
 <!-- #   ggtitle('Patch seq cell data') + xlim(x_min, x_max) + ylim(y_min_1, y_max_1) + -->
 <!-- #   theme(axis.title = element_text(size = 12), axis.text = element_text(size = 10), plot.title = element_text(size = 12)) + -->
 <!-- #   theme_classic() -->
-<!-- #  -->
+<!-- # -->
 <!-- # cadwell_aibs_marker_comp = plot_grid(p1, p2, nrow = 1) -->
 <!-- # return(cadwell_aibs_marker_comp) -->
-<!-- #  -->
+<!-- # -->
 <!-- # } -->
-<!-- #  -->
+<!-- # -->
 <!-- # plotMarkerBoxplots = function(patch_seq_contam_df, -->
 <!-- #                               dissoc_cell_contam_df, -->
 <!-- #                               on_type, -->
 <!-- #                               off_type){ -->
-<!-- #    -->
+<!-- # -->
 <!-- #   subclasses = unique(dissoc_cell_contam_df$contam_type) -->
-<!-- #    -->
+<!-- # -->
 <!-- #   dissoc_cell_contam_df = dissoc_cell_contam_df %>% -->
 <!-- #     dplyr::select(c(on_type,off_type,"colors","contam_type")) %>% -->
 <!-- #     mutate(group = case_when(contam_type == subclasses[1] ~ "ref_on", -->
 <!-- #                              contam_type == subclasses[2] ~ "ref_off")) -->
-<!-- #    -->
+<!-- # -->
 <!-- #   patch_seq_contam_df = patch_seq_contam_df %>% -->
 <!-- #     dplyr::select(c(on_type,off_type,"colors","contam_type")) %>% -->
 <!-- #     mutate(group = "pat") -->
-<!-- #    -->
+<!-- # -->
 <!-- #   plot_df = rbind(dissoc_cell_contam_df, patch_seq_contam_df) %>% -->
 <!-- #     rownames_to_column(var = "sample") %>% -->
 <!-- #     pivot_longer(cols = c(2,3), names_to = "Markers", values_to = "expression") -->
 <!-- #   plot_df$expression = log2(plot_df$expression +1) -->
 <!-- #   plot_df$Markers = factor(plot_df$Markers, levels = c("Macrophage", "Sst_on"), labels = c("Microglia", "SST Neurons")) # check -->
-<!-- #   plot_df$group = factor(plot_df$group,  -->
-<!-- #                          levels = c("ref_on","ref_off","pat"),  -->
+<!-- #   plot_df$group = factor(plot_df$group, -->
+<!-- #                          levels = c("ref_on","ref_off","pat"), -->
 <!-- #                          labels = c("reference\nSST neurons","reference\nmicroglia","patchseq\nSST neurons")) -->
-<!-- #    -->
+<!-- # -->
 <!-- #   dodge = position_dodge(width = 0.4) -->
 <!-- #   pal = colorRampPalette(rev(brewer.pal(n = 11, name = "RdYlBu")))(20) -->
-<!-- #    -->
+<!-- # -->
 <!-- #   p = ggplot(plot_df, aes(x = group, y = expression, fill = Markers))+ -->
-<!-- #     geom_violin(trim = F, position = dodge, width = 0.4, scale = "width") +    -->
+<!-- #     geom_violin(trim = F, position = dodge, width = 0.4, scale = "width") + -->
 <!-- #     geom_boxplot(width = .1, outlier.color = NA, position = dodge) + -->
 <!-- #     scale_fill_manual(values = c(pal[18], pal[3])) + -->
 <!-- #     labs(x = "", y = "Marker Expression (Log2(CPM+1)") + -->
 <!-- #     theme_classic() + -->
 <!-- #     theme(text = element_text(size = 24), -->
 <!-- #           axis.text.x = element_text(size = 24)) -->
-<!-- #  -->
+<!-- # -->
 <!-- #   return(p) -->
 <!-- # } -->
-<!-- #  -->
+<!-- # -->
 <!-- # ``` -->
-<!-- #  -->
+<!-- # -->
 <!-- # ```{r plot} -->
-<!-- #  -->
-<!-- # pat_samps = qcMetrics %>%  -->
+<!-- # -->
+<!-- # pat_samps = qcMetrics %>% -->
 <!-- #   # {if(spcs=="human") filter(., contam_type == "Superficial.Layers_on") else .} %>% -->
 <!-- #   # {if(spcs=="mouse") filter(., contam_type == "Sst_on") else .} %>% -->
 <!-- #   {if(spcs=="human") arrange(., desc(Microglia)) else .} %>% -->
 <!-- #   {if(spcs=="mouse") arrange(., desc(Macrophage)) else .} %>% -->
 <!-- #   pull(sample_id) -->
-<!-- #  -->
+<!-- # -->
 <!-- # pat_plotting_df = datPat_all[,pat_samps] -->
-<!-- # pat_plotting_df = cbind(annoPat_all[annoPat_all$transcriptomics_sample_id %in% pat_samps,], pat_plotting_df %>% t())  -->
+<!-- # pat_plotting_df = cbind(annoPat_all[annoPat_all$transcriptomics_sample_id %in% pat_samps,], pat_plotting_df %>% t()) -->
 <!-- # rownames(pat_plotting_df) = pat_samps -->
-<!-- #  -->
+<!-- # -->
 <!-- # if(spcs=="human") plot_cell_types = c('Superficial.Layers_on','Microglia','Astrocyte') -->
 <!-- # if(spcs=="mouse") plot_cell_types = c('Sst_on','Macrophage','Astro') -->
 <!-- # plot_marker_list = c(markers[plot_cell_types]) -->
-<!-- #  -->
+<!-- # -->
 <!-- # # if(spcs=="human") svglite("output/figures/heatmap_human.svg", width = 12, height = 8) -->
 <!-- # # if(spcs=="mouse") svglite("output/figures/heatmap_mouse.svg", width = 12, height = 8) -->
-<!-- #  -->
+<!-- # -->
 <!-- # png("output/figures/heatmap_mouse.png", units = "in", width = 10, height = 10, res = 100) -->
 <!-- #   plotMarkerHeatmap2(markerlist = plot_marker_list, # named list of lists defining which markers to show -->
 <!-- #                      expr_matrix = pat_plotting_df, # data frame that combines gene expr with metadata, each row is a single-cell -->
@@ -818,17 +867,17 @@ save(human_heatmap_p, mouse_heatmap_p, human_contam_p, mouse_contam_p, file =  "
 <!-- #                      ) -->
 <!-- #   #grid.text(plot_cell_types, x=c(0.10,0.36,0.67),y=c(0.97,0.97,0.97), gp=gpar(fontsize=9, col="white", alpha = 1.0, fontface ="bold")) -->
 <!-- # dev.off() -->
-<!-- #  -->
+<!-- # -->
 <!-- # ``` -->
-<!-- #  -->
-<!-- #  -->
+<!-- # -->
+<!-- # -->
 <!-- # ```{r plot} -->
-<!-- #  -->
+<!-- # -->
 <!-- # cut = 0.6 -->
 <!-- # percentile = ecdf(qcMetrics$Macrophage) -->
 <!-- # percentile(0.6) -->
 <!-- # hist(qcMetrics$Macrophage) -->
-<!-- #  -->
+<!-- # -->
 <!-- # qcMetrics = qcMetrics  %>% -->
 <!-- #   mutate(high_micro = case_when( -->
 <!-- #     Macrophage > cut ~ TRUE, -->
@@ -836,26 +885,26 @@ save(human_heatmap_p, mouse_heatmap_p, human_contam_p, mouse_contam_p, file =  "
 <!-- #   )) -->
 <!-- # #write.csv(qcMetrics, file = "./output/mouse_qcMetrics.csv") -->
 <!-- # high_samps = qcMetrics %>% filter(high_micro == TRUE) %>% pull(sample_id) -->
-<!-- #  -->
+<!-- # -->
 <!-- # #svglite("output/figures/histcut_mouse.svg", width = 8.5, height = 6.88) -->
 <!-- #   ggplot(qcMetrics, aes(Macrophage))+ -->
 <!-- #     geom_histogram(bins = 25, fill = "royalblue3") + -->
 <!-- #     geom_vline(xintercept = cut, linetype = "dashed", size = 1) + -->
 <!-- #     #geom_text(aes(0, cut, label = paste("contam_score = ", cut, sep = ""), vjust = -20, hjust = -5)) + -->
 <!-- #     labs(x = "microglia contamination score", y = "cell count") + -->
-<!-- #     coord_flip() +  -->
+<!-- #     coord_flip() + -->
 <!-- #     theme_classic() -->
 <!-- # #dev.off() -->
-<!-- #  -->
+<!-- # -->
 <!-- # ``` -->
-<!-- #  -->
+<!-- # -->
 <!-- # ```{r plot} -->
-<!-- #  -->
+<!-- # -->
 <!-- # if(spcs=="human") samps = qcMetrics %>% filter(contam_type == "Superficial.Layers_on") %>% pull(sample_id) -->
-<!-- # if(spcs=="mouse") samps = qcMetrics %>% filter(contam_type == "Sst_on") %>% pull(sample_id)  -->
-<!-- #  -->
+<!-- # if(spcs=="mouse") samps = qcMetrics %>% filter(contam_type == "Sst_on") %>% pull(sample_id) -->
+<!-- # -->
 <!-- # pat_contam = calcContamAllTypes(t(datPat_all+1), markers, colwise = F) %>% filter(rownames(.) %in% pat_samps) -->
-<!-- # pat_contam = pat_contam %>%  -->
+<!-- # pat_contam = pat_contam %>% -->
 <!-- #   filter(rownames(.) %in% samps) %>% -->
 <!-- #   rownames_to_column(var = "sample_id") %>% -->
 <!-- #   mutate(colors = case_when( -->
@@ -866,43 +915,43 @@ save(human_heatmap_p, mouse_heatmap_p, human_contam_p, mouse_contam_p, file =  "
 <!-- # pat_contam$major_type = "Glutamatergic" -->
 <!-- # if(spcs=="human") pat_contam$contam_type = "Superficial.Layers_on" -->
 <!-- # if(spcs=="mouse") pat_contam$contam_type = "Sst_on" -->
-<!-- #  -->
+<!-- # -->
 <!-- # if(spcs=="human") facs_samps = annoFACs2 %>% filter(subclass_label_new == "Superficial.Layers") %>% pull(sample_name) %>% as.character() -->
 <!-- # if(spcs=="mouse") facs_samps = annoFACs2 %>% filter(subclass_label == "Sst") %>% pull(sample_id) %>% as.character() -->
-<!-- #  -->
-<!-- # facs_superficial_contam = calcContamAllTypes(t(datFACs2[,facs_samps]+1), markers, colwise = F)  -->
+<!-- # -->
+<!-- # facs_superficial_contam = calcContamAllTypes(t(datFACs2[,facs_samps]+1), markers, colwise = F) -->
 <!-- # facs_superficial_contam$colors = 'orangered3' -->
 <!-- # if(spcs=="human") facs_superficial_contam$contam_type = 'Superficial.Layers_on' -->
 <!-- # if(spcs=="mouse") facs_superficial_contam$contam_type = 'Sst_on' -->
-<!-- #  -->
+<!-- # -->
 <!-- # if(spcs=="human") facs_samps = annoFACs2 %>% filter(subclass_label_new == "Microglia") %>% pull(sample_name) %>% as.character() -->
 <!-- # if(spcs=="mouse") facs_samps = annoFACs2 %>% filter(subclass_label == "Macrophage") %>% pull(sample_id) %>% as.character() -->
-<!-- #  -->
-<!-- # facs_micro_contam = calcContamAllTypes(t(datFACs2[,facs_samps]+1), markers, colwise = F)  -->
+<!-- # -->
+<!-- # facs_micro_contam = calcContamAllTypes(t(datFACs2[,facs_samps]+1), markers, colwise = F) -->
 <!-- # facs_micro_contam$colors = "royalblue3" -->
 <!-- # facs_micro_contam$contam_type = 'Macrophage' #check -->
-<!-- #  -->
+<!-- # -->
 <!-- # if(spcs=="human") facs_contam = rbind(facs_superficial_contam %>% dplyr::select(Superficial.Layers_on, Microglia, colors, contam_type), -->
 <!-- #                                       facs_micro_contam %>% dplyr::select(Superficial.Layers_on, Microglia, colors, contam_type)) -->
-<!-- # if(spcs=="mouse") facs_contam = rbind(facs_superficial_contam %>% dplyr::select(Sst_on, Macrophage, colors, contam_type),  -->
+<!-- # if(spcs=="mouse") facs_contam = rbind(facs_superficial_contam %>% dplyr::select(Sst_on, Macrophage, colors, contam_type), -->
 <!-- #                                       facs_micro_contam %>% dplyr::select(Sst_on, Macrophage, colors, contam_type)) -->
-<!-- #  -->
+<!-- # -->
 <!-- # if(spcs=="human") svglite("output/figures/facsvspat_human.svg", width = 12, height = 7) -->
 <!-- # if(spcs=="mouse") svglite("output/figures/facsvspat_mouse.svg", width = 12, height = 7) -->
 <!-- # plotPatchSeqDissocCellMarkerExpr(patch_seq_contam_df = pat_contam, -->
-<!-- #                                  dissoc_cell_contam_df = facs_contam,  -->
+<!-- #                                  dissoc_cell_contam_df = facs_contam, -->
 <!-- #                                  on_type = 'Sst_on', #check -->
 <!-- #                                  off_type = 'Macrophage') #check -->
 <!-- # dev.off() -->
-<!-- #  -->
+<!-- # -->
 <!-- # if(spcs=="human") svglite("output/figures/facsvspat_box_human.svg", width = 10, height = 10) -->
 <!-- # if(spcs=="mouse") svglite("output/figures/facsvspat_box_mouse.svg",  width = 10, height = 10) -->
 <!-- # plotMarkerBoxplots(patch_seq_contam_df = pat_contam, -->
-<!-- #                    dissoc_cell_contam_df = facs_contam,  -->
+<!-- #                    dissoc_cell_contam_df = facs_contam, -->
 <!-- #                    on_type = 'Sst_on', #check -->
 <!-- #                    off_type = 'Macrophage') #check -->
 <!-- # dev.off() -->
-<!-- #  -->
+<!-- # -->
 <!-- # ``` -->
 
 
