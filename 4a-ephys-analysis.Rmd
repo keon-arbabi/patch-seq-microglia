@@ -100,7 +100,22 @@ metadata_m %<>% mutate(
                         apamp = peak_v - threshold_v, 
                         ahpamp = threshold_v - fast_trough_v,
 )
-model_features_list = c('input_resistance', 'rheobase_i', 'width', 'apamp', 'ahpamp', 'threshold_v', 'trough_v', 'v_baseline', 'fi_fit_slope', 'sag', 'adapt')
+metadata_scala =  metadata_scala %>% filter(`Rheobase (pA)` > 0) %>% 
+  mutate(
+    input_resistance = log10(`Input resistance (MOhm)`), 
+    rheobase_i = log10(`Rheobase (pA)`), 
+    width = log10(`AP width (ms)` * 1000),
+    apamp = `AP amplitude (mV)` ,
+    ahpamp = -`Afterhyperpolarization (mV)`,
+    threshold_v = `AP threshold (mV)`,
+    trough_v = `AP threshold (mV)` + `Afterhyperpolarization (mV)`,
+    v_baseline = `Resting membrane potential (mV)`,
+    sag = `Sag ratio`,
+    adapt = `ISI adaptation index`
+                        
+)
+
+model_features_list = c('input_resistance', 'rheobase_i', 'width', 'apamp', 'ahpamp', 'threshold_v', 'trough_v', 'v_baseline', 'sag', 'adapt')
 
 ```
 
@@ -187,7 +202,17 @@ for(f in model_features_list){
     mutate(term = str_replace(term, "corresponding_AIT2.3.1_alias", "")) %>%
     mutate(term = recode(term, `scale(Microglia)` = "Microglia")) 
   tidy_df$ephys_prop = f
-  tidy_df$species = 'mouse'
+  tidy_df$species = 'mouse_gouwens'
+  keep_df = bind_rows(keep_df, tidy_df)
+  
+  formula = paste0('scale(', f, ') ~ 1 + (1|corresponding_AIT2.3.1_alias) + Microglia + (1|donor_id)')
+  print(formula)
+  tidy_df = tidy(lmer(formula, data = metadata_scala, REML = FALSE)) %>%
+    filter(effect == "fixed") %>%
+    mutate(term = str_replace(term, "corresponding_AIT2.3.1_alias", "")) %>%
+    mutate(term = recode(term, `scale(Microglia)` = "Microglia")) 
+  tidy_df$ephys_prop = f
+  tidy_df$species = 'mouse_scala'
   keep_df = bind_rows(keep_df, tidy_df)
 }
 keep_df$ephys_prop = factor(keep_df$ephys_prop, 
@@ -200,7 +225,7 @@ bar_graph_plot = keep_df %>% filter(term == 'Microglia', !ephys_prop %in% remove
   geom_bar(stat = "identity", position = "dodge2") +
   geom_errorbar(aes(x = ephys_prop, y = estimate, ymin = estimate - std.error, ymax = estimate + std.error), position = "dodge2") +
   theme_classic() + 
-  scale_fill_manual(values = c('#9632B8FF', '#EEA236FF')) +
+  scale_fill_manual(values = c('#9632B8FF', '#EEA236FF', "dark green")) +
   geom_hline(yintercept = 0) + 
   ylab('Microglial assoc (Beta)') + 
   theme(axis.text.x = element_text(angle = 60, hjust = 1, vjust = 1, size = 15), 
