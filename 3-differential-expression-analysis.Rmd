@@ -201,6 +201,20 @@ rownames(metadata_m_ref) = metadata_m_ref$sample_name
 
 ```
 
+```{r}
+# visualize expression distribution for a random gene across all samples 
+tmp = edgeR::cpm(matrix_h_ref, prior.count = 2, log = TRUE)
+tmp = tmp[sample(1:ncol(tmp),1),]
+df = data.frame(tmp)
+
+ggplot(df, aes(x = tmp)) +
+  geom_histogram(aes(y = ..density..),
+               color = 1, fill = "white") +
+  geom_density() +
+  labs(x = "log cpm")
+
+```
+
 # seurat workflow 
 ```{r}
 
