@@ -1,0 +1,303 @@
+---
+title: "2-variable-analysis-scala"
+author: "Shreejoy Tripathy"
+date: "7/25/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# load libraries 
+```{r}
+
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(tidytext)
+  library(magrittr)
+  library(here)
+  library(data.table)
+  library(lme4)
+  library(MuMIn)
+  library(GGally)
+  library(cowplot)
+  library(gridExtra)
+  library(ggpubr)
+  library(mice)
+  library(stringr)
+  library(svglite)
+  library(performance)
+  library(RColorBrewer)
+  library(ggsci)
+  library(ggrepel)
+})
+
+```
+
+# scala analysis
+```{r}
+
+metadata_scala = read_csv('data/patchseq/scala_scMetrics.csv')
+metadata_scala = metadata_scala %>% mutate(depth_from_pia_um = as.numeric(`Soma depth (µm)`)) %>%
+  dplyr::rename(age = `Mouse age`, 
+                Microglia = Macrophage, 
+                biological_sex = `Mouse gender`, 
+                donor_id = Mouse, 
+                hold_time = `Hold Time (min)`, # how long was cell recorded?
+                genotype = `Mouse genotype`) %>% 
+  separate(Sample, into = c('blah', 'cell_num'), remove = F) %>% # get cell recorded number
+  mutate(cell_num = as.numeric(cell_num)) %>% 
+  group_by(donor_id) %>% 
+  mutate(cell_count_per_donor = n(), 
+         norm_cell_num = rank(cell_num)) %>% # munge cell number into ranks (i.e., excluding unused / upatched cells)
+  ungroup()
+
+# munge names from scala dataset for excitatory cells
+metadata_scala_exc = metadata_scala %>% 
+  filter(grepl('L(\\d)', top_alm_visp_cluster )) %>% 
+  mutate(top_alm_visp_cluster = str_replace(top_alm_visp_cluster, '[/]', '.')) %>%
+  separate(top_alm_visp_cluster, into = c("layer", "type", "region"), remove = F, sep = " ") %>% 
+  unite(col = "subclass", layer, type, sep = " ", remove = F) %>% 
+  unite(col = "corresponding_AIT2.3.1_alias", layer, type, region, sep = " ", remove = F) %>% 
+  mutate(class = 'Glutamatergic')
+
+metadata_scala_exc[metadata_scala_exc$subclass %in% c("L6b VISp", "L6b P2ry12","L6b ALM", "L6b Hsd17b2"), 'subclass' ] = "L6b"
+  
+# munge names from inhibitory cells
+metadata_scala_inh = metadata_scala %>% filter(!grepl('L(\\d)', top_alm_visp_cluster )) %>%
+  separate(top_alm_visp_cluster, into = c("subclass", "second"), remove = F) %>% 
+  unite(col = "corresponding_AIT2.3.1_alias", subclass, second, sep = " ", remove = F) %>%
+  mutate(class = 'GABAergic')
+
+metadata_scala = bind_rows(metadata_scala_exc, metadata_scala_inh)
+
+# drop cell types from analysis with fewer than 10 cells
+leaveout = metadata_scala %>% dplyr::count(corresponding_AIT2.3.1_alias, sort = TRUE) %>% 
+  filter(n < 10) %>% 
+  pull(corresponding_AIT2.3.1_alias) %>% unique()
+leaveout = c(leaveout,"",NA, "NA NA")
+
+metadata_scala = metadata_scala %>% filter(!corresponding_AIT2.3.1_alias %in% leaveout) 
+
+metadata_scala$cluster_label = metadata_scala$subclass
+metadata_scala$cluster_label = factor(metadata_scala$cluster_label, 
+                                  levels = c("Lamp5","Pvalb","Serpinf1","Sncg","Sst","Vip", "L5 PT", "L6 IT" , "L5 IT", "L4 IT" , "L2.3 IT", "L6 CT"),
+                                  labels = c("Lamp5","Pvalb","Serpinf1","Sncg","Sst","Vip", "L5 PT", "L6 IT" , "L5 IT", "L4 IT" , "L2.3 IT", "L6 CT"),
+                                  )
+```
+## univariate plots 
+```{r}
+# order factor levels of cell types by microglia scores
+metadata_scala = metadata_scala %>% group_by(corresponding_AIT2.3.1_alias) %>% mutate(median_cluster_label_Microglia = median(Microglia)) %>% ungroup()
+
+metadata_scala$corresponding_AIT2.3.1_alias = fct_reorder(metadata_scala$corresponding_AIT2.3.1_alias, metadata_scala$median_cluster_label_Microglia)
+
+
+# cell soma depth from pia
+cell_soma_depth_plot = metadata_scala %>% ggplot(aes(x = depth_from_pia_um, y = Microglia)) + 
+  geom_point(size = 1.5, shape = 16, color = "black", alpha = 0.5) + 
+  geom_smooth(method = "lm", se = FALSE, color = "black", lwd = 1.0) +
+  labs(x = "Cell soma pial depth (um)", y = "Microglia score") +
+  stat_cor(method = "spearman", label.y = 1, size = 5)  +
+  theme_classic() +
+  theme(legend.position = "none", 
+      axis.text = element_text(size = 12),
+      axis.title = element_text(size = 16)) 
+
+# cell soma depth from pia
+cell_num_plot = metadata_scala %>% filter(cell_count_per_donor > 4) %>% 
+  ggplot(aes(x = norm_cell_num, y = Microglia)) + 
+  geom_smooth(method = "lm", se = FALSE, color = "black", lwd = 1.0) +
+  geom_jitter(size = 1.5, shape = 16, color = "black", width = 0.1, alpha = 0.5) + 
+  xlab('Recorded cell number') + ylab('') +
+  stat_cor(method = "spearman", label.y = 1, size = 5) +
+  theme_classic()  +
+  theme(legend.position = "none", 
+      axis.text = element_text(size = 12),
+      axis.title = element_text(size = 16)) 
+
+hold_time_plot = metadata_scala %>% 
+  ggplot(aes(x = hold_time, y = Microglia)) + 
+  geom_smooth(method = "lm", se = FALSE, color = "black", lwd = 1.0) +
+  geom_jitter(size = 1.5, shape = 16, color = "black", width = 0.1, alpha = 0.5) + 
+  # geom_smooth(aes(x = hold_time, y = Microglia, group = 1), method = "lm", se = FALSE, color = "blue", lwd = 2.0) +
+  xlab('Recording time (mins)') +  ylab('') + 
+  stat_cor(method = "spearman", label.y = 1, size = 5) +
+  # geom_smooth(method = "lm", se = FALSE, color = "black", alpha = .2) + 
+  theme_classic() +
+  theme(legend.position = "none", 
+      axis.text = element_text(size = 12),
+      axis.title = element_text(size = 16)) 
+
+scala_univar_plots = plot_grid(cell_soma_depth_plot, cell_num_plot, hold_time_plot, nrow = 1)
+
+
+cell_types_microglia_plot = metadata_scala %>%
+  ggplot(aes(x = corresponding_AIT2.3.1_alias, y = Microglia)) + 
+  geom_boxplot(outlier.color = "NA", width = 0.6, lwd = 0.8) +
+  geom_jitter(alpha = 0.25, width = 0.25, shape = 16, size = 1.5) +
+  labs(y = "Microglia score", x = "VISp/ALM Cell Type") +
+  scale_fill_locuszoom() +
+  #scale_fill_manual(values = pal) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
+        #axis.title.x = element_blank(), 
+        legend.position = "none", 
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 16), 
+        strip.text = element_text(size = 16)
+) +
+  # stat_compare_means(method = "kruskal.test", label.y = 1, label.x = 1.5, size = 4) +
+  facet_grid(~class, scales = "free_x", space = "free_x")
+
+
+
+# 
+# m3 = metadata_scala %>% ggplot(aes(x = cell_num, y = Microglia)) + 
+#   geom_point(size = 1.5, shape = 16, color = "black") + 
+#   geom_smooth(method = "lm", se = FALSE, color = "black", lwd = 1.0) +
+#   labs(x = "Cell Soma Normalized\nDepth (N = 696)", y = "") +
+#   theme_classic() +
+#   stat_cor(method = "spearman", label.y = 1, size = 5)
+
+# mouse_univar_plot = plot_grid(m2, m1, nrow = 1, align = "h", rel_widths = c(2, 5))
+# mouse_univar_plot
+
+```
+
+# integrate scala and gouwens microglia effects per cell type
+```{r}
+metadata_scala = metadata_scala %>% group_by(corresponding_AIT2.3.1_alias) %>% 
+  mutate(median_cluster_label_Microglia_scala = median(Microglia), 
+         cell_count = n()) %>% ungroup()
+
+metadata_m = metadata_m %>% group_by(corresponding_AIT2.3.1_alias) %>% 
+  mutate(median_cluster_label_Microglia_gouwens = median(Microglia), cell_count = n()) %>% ungroup()
+
+# metadata_scala$top_alm_visp_subclass = fct_reorder(metadata_scala$top_alm_visp_subclass, metadata_scala$median_cluster_label_Microglia)
+
+joined_type_medians = inner_join(metadata_scala %>% select(corresponding_AIT2.3.1_alias, median_cluster_label_Microglia_scala) %>% distinct(corresponding_AIT2.3.1_alias, .keep_all = T), 
+           metadata_m %>% 
+             select(corresponding_AIT2.3.1_alias, median_cluster_label_Microglia_gouwens) %>% 
+             distinct(corresponding_AIT2.3.1_alias, .keep_all = T), 
+           by = 'corresponding_AIT2.3.1_alias')
+
+
+corresp_plot = joined_type_medians %>% 
+  ggplot(aes(x = median_cluster_label_Microglia_gouwens, 
+             y = median_cluster_label_Microglia_scala, 
+             label = corresponding_AIT2.3.1_alias)) + 
+  geom_smooth(method = "lm", se = FALSE, color = "black", lwd = 0.25, alpha = 0.5) + 
+  geom_point() +
+  geom_text_repel() + 
+  labs(x = "Gouwens Microglia scores", y = "Scala Microglia scores") + 
+  stat_cor(method = "pearson", size = 5) + 
+  theme_classic() +
+  theme(legend.position = "none", 
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 16))
+
+
+
+```
+
+## stats modeling
+```{r}
+
+scala_stats_results = lapply(c('GABAergic', 'Glutamatergic'), function(class_name){
+  metadata_scala_filt = metadata_scala %>% filter(class == class_name)
+  #dplyr::select(-c("ethnicity","neuron_reconstruction_type","GFAP.ctx.ABC")) %>%
+  #mutate(age = as.numeric(gsub(" yrs","",age))) %>% na_if("") %>% na.omit()
+
+continous_vars = c("Microglia","age","depth_from_pia_um", "hold_time", "norm_cell_num")
+categorical_vars = c("biological_sex","corresponding_AIT2.3.1_alias","genotype", "donor_id")
+
+metadata_scala_filt[,categorical_vars] = lapply(metadata_scala_filt[,categorical_vars], factor)
+
+#ggpairs(metadata_scala_filt[c(continous_vars,categorical_vars)], cardinality_threshold = 30)
+
+# full model
+form_full = Microglia ~ biological_sex + scale(age) + scale(depth_from_pia_um) + corresponding_AIT2.3.1_alias + 
+  scale(hold_time) + scale(norm_cell_num) + (1|donor_id)
+fit_full = lmer(form_full, data = metadata_scala_filt, REML = FALSE)
+random_rsq = r.squaredGLMM(fit_full)[2] - r.squaredGLMM(fit_full)[1]
+
+coefs = data.frame(coef(summary(fit_full)))
+coefs$p.z = 2 * (1 - pnorm(abs(coefs$t.value)))
+
+# null model 
+form_null = Microglia ~ 1 + (1|donor_id)
+fit_null = lmer(form_null, data = metadata_scala_filt, REML = FALSE)
+
+# partial model testing
+res = lapply(c('biological_sex', 'scale(age)', 'scale(depth_from_pia_um)', 'corresponding_AIT2.3.1_alias', 
+               'scale(hold_time)', 'scale(norm_cell_num)'), function(V){
+  
+  form2 = gsub(V, "1", form_full, fixed = TRUE)
+  form2 = as.formula(paste(form2[2], '~', form2[3]))
+  
+  fit_test = lmer(form2, data = metadata_scala_filt, REML = F)  
+  r.squaredGLMM(fit_test)
+
+  temp = data.frame(variable = V, 
+                    fm = r.squaredGLMM(fit_full)[1],
+                    fc = r.squaredGLMM(fit_full)[2],
+                    tm = r.squaredGLMM(fit_test)[1],
+                    tc = r.squaredGLMM(fit_test)[2],
+                    fm_tm = (r.squaredGLMM(fit_full)[1] - r.squaredGLMM(fit_test)[1]),
+                    fc_tc = (r.squaredGLMM(fit_full)[2] - r.squaredGLMM(fit_test)[2])
+                    )
+})
+
+
+
+res = do.call(rbind, res)
+res = rbind(res, c("donor_id", rep(random_rsq, ncol(res)-1)))
+# res$variable = factor(res$variable,
+#                       levels = c(levels(res$variable), 'donor_id'))
+# res[nrow(res), 'variable'] = "donor_id"
+
+res[,2:7] = sapply(res[, 2:7], as.numeric)
+res$variable = factor(res$variable,
+                      levels = c("donor_id","corresponding_AIT2.3.1_alias","scale(depth_from_pia_um)","scale(age)",
+                                 "biological_sex", "scale(hold_time)", "scale(norm_cell_num)"),
+                      labels = c("Donor","T-type","Pial depth","Age","Biol. sex", "Rec. Time", "Cell Num"))
+
+
+res$group = class_name
+return(res)
+}) %>% bind_rows()
+
+
+
+scala_mixed_model_plot = scala_stats_results %>%
+  mutate(variable = reorder_within(variable, fm_tm, group)) %>%
+  ggplot(aes(x = variable, y = fm_tm)) + 
+  geom_col(color = "black", fill = "lightgrey", lwd = 0.8, show.legend = FALSE) +
+  facet_grid(vars(group), scales = "free", space = "free")+
+  coord_flip() +
+  scale_x_reordered() +
+  scale_y_continuous(expand = c(0,0)) +
+  ylim(0, 0.15) +
+  labs(y = "Variance Explained (R-squared)") +
+  theme_classic() +
+  theme(axis.title.y = element_blank(), 
+        strip.text = element_text(size = 16),
+        axis.text = element_text(size = 12),
+        axis.text.y = element_text(size = 16),
+        axis.title = element_text(size = 16))
+scala_mixed_model_plot
+```
+
+## stats modeling
+```{r}
+bottom_row_plot = plot_grid(corresp_plot, scala_mixed_model_plot, nrow = 1)
+
+
+scala_fig_2_supplement = plot_grid(scala_univar_plots, cell_types_microglia_plot, bottom_row_plot, nrow = 3, rel_heights = c(1.25, 1.5, 1.5))
+
+ggsave(filename = "./output/scala_fig_2_supplement.png", device = "png", width = 10, height = 12, units = "in", dpi = 500, limitsize = F)
+
+ggsave(filename = "./output/scala_fig_2_supplement.svg", device = "svg", width = 10, height = 12, units = "in", dpi = 500, limitsize = F)
+```

@@ -183,9 +183,9 @@ res = lapply(c('biological_sex', 'scale(age)', 'medical_conditions','scale(depth
 
 res = do.call(rbind, res)
 res = rbind(res, c("donor_id", rep(random_rsq, ncol(res)-1)))
-res$variable = factor(res$variable,
-                      levels = c(levels(res$variable), 'donor_id'))
-res[nrow(res), 'variable'] = "donor_id"
+# res$variable = factor(res$variable,
+                      # levels = c(levels(res$variable), 'donor_id'))
+# res[nrow(res), 'variable'] = "donor_id"
 
 res[,2:7] = sapply(res[, 2:7], as.numeric)
 res$variable = factor(res$variable,
@@ -326,9 +326,8 @@ res = lapply(c('biological_sex', 'scale(age)', 'corresponding_AIT2.3.1_alias'), 
 
 res = do.call(rbind, res)
 res = rbind(res, c("donor_id", rep(random_rsq, ncol(res)-1)))
-res$variable = factor(res$variable,
-                      levels = c(levels(res$variable), 'donor_id'))
-res[nrow(res), 'variable'] = "donor_id"
+res$variable = as.factor(res$variable)
+# res[nrow(res), 'variable'] = "donor_id"
 
 res[,2:7] = sapply(res[, 2:7], as.numeric)
 res$variable = factor(res$variable,
@@ -336,6 +335,12 @@ res$variable = factor(res$variable,
                       labels = c("Donor","T-type","normalized depth","Age","Biological sex"))
 res$group = "mouse_gouwens"
 res_m = res
+
+
+```
+
+# generate combined mixed model plot
+```{r}
 
 res = rbind(res_h, res_m, res_mouse_scala)
 #res$variable = str_wrap(res$variable, width = 30)
@@ -357,9 +362,7 @@ mixed_model_plot = res %>%
         axis.text.y = element_text(size = 16),
         axis.title = element_text(size = 16))
 mixed_model_plot
-
 ```
-
 
 # combined plot
 ```{r}
@@ -513,9 +516,9 @@ res = lapply(c('biological_sex', 'scale(age)', 'scale(depth_from_pia_um)', 'corr
 
 res = do.call(rbind, res)
 res = rbind(res, c("donor_id", rep(random_rsq, ncol(res)-1)))
-res$variable = factor(res$variable,
-                      levels = c(levels(res$variable), 'donor_id'))
-res[nrow(res), 'variable'] = "donor_id"
+# res$variable = factor(res$variable,
+#                       levels = c(levels(res$variable), 'donor_id'))
+# res[nrow(res), 'variable'] = "donor_id"
 
 res[,2:7] = sapply(res[, 2:7], as.numeric)
 res$variable = factor(res$variable,
