@@ -1,0 +1,333 @@
+---
+title: "1-calculate-qc-metrics-scala"
+author: "Shreejoy Tripathy"
+date: "7/29/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# load libraries
+```{r}
+# devtools::install_github("AllenInstitute/patchseqtools")
+# devtools::install_github('PavlidisLab/patchSeqQC')
+# devtools::install_github("AllenInstitute/VENcelltypes")
+
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(magrittr)
+  library(Seurat)
+  library(edgeR)
+  library(here)
+  library(data.table)
+  library(ggpubr)
+  library(patchseqtools)
+  library(patchSeqQC)
+  library(VENcelltypes)
+  library(feather)
+  library(matrixStats)
+  library(ggplotify)
+  library(cowplot)
+  library(ggpubr)
+  library(grid)
+  library(svglite)
+  library(RColorBrewer)
+  library(ggbeeswarm)
+})
+
+```
+
+# load patch-seq data
+```{r}
+# which data, "human" or "mouse"
+spcs = "mouse"  
+
+data_path = '/external/rprshnas01/netdata_kcni/stlab/Public/Scala_et_al_2020/mini-atlas/data/'
+
+unzip(paste0(data_path, 'm1_patchseq_intron_counts.csv.gz'))
+
+meta = read_delim(paste0(data_path, 'm1_patchseq_meta_data.csv'), delim = '\t')
+
+scala_meta = meta %>% 
+  separate(`ALM/VISp top-3`, into = c('top_cluster_string'), remove = F, sep = ' ,') %>% 
+  separate(top_cluster_string, into = c('top_alm_visp_cluster', 'cluster_score_string'), remove = F, sep = ' \\(') %>% 
+  mutate(top_alm_visp_cluster = str_trim(top_alm_visp_cluster)) %>%
+  separate(top_alm_visp_cluster, into = c('top_alm_visp_subclass', 'rest'), remove = F, sep = ' ') %>% 
+  separate(top_cluster_string, into = c('top_alm_visp_cluster', 'cluster_score_string'), remove = F, sep = ' \\(') %>% 
+  mutate(top_alm_visp_cluster = str_trim(top_alm_visp_cluster)) %>%
+  separate(cluster_score_string, into = c('cluster_score_string_number', 'rest'), remove = F, sep = '\\%\\)') %>% 
+  mutate(top_cluster_score = as.numeric(cluster_score_string_number))  
+
+scala_exon_counts = read_delim(paste0(data_path, 'm1_patchseq_exon_counts.csv'), delim = ',')
+scala_intron_counts = read_delim(gzfile(paste0(data_path, 'm1_patchseq_intron_counts.csv.gz')), delim = ',')
+
+scala_total_count = scala_exon_counts[-1] +  scala_intron_counts[-1]
+scala_lib_size = colSums(scala_total_count)
+scala_total_count$gene = scala_exon_counts$X1
+
+# scala_total_count = edgeR::cpm(scala_total_count, log = T, prior.count = 1)
+# rownames(scala_total_count) = scala_exon_counts$X1
+
+# patch-seq data 
+# scala total count here is already in cpm
+Expr.datp = scala_total_count %>%
+  column_to_rownames(var = "gene") %>%
+  cpm() %>%
+  t() %>% as.data.frame() %>%
+  rownames_to_column(var = "sample_id")
+
+datPat_all = as.matrix(Expr.datp[,names(Expr.datp)!="sample_id"])
+rownames(datPat_all) = Expr.datp$sample_id
+datPat_all = t(datPat_all)
+```
+
+```{r}
+# Read in the data
+if(spcs == "mouse"){
+  Samp.dat = read_feather(here("local","FACs","mouse","anno.feather")) 
+  Expr.dat = feather(here("local","FACs","mouse","data.feather")) # FPKM
+  Samp.dat = Samp.dat[match(Expr.dat$sample_id,Samp.dat$sample_id),]
+  
+  # Define a second annotation and data file with all clusters
+  ld = sort(unique(Samp.dat$cluster_label))
+  useClust2 = ld
+  for (val in c("ALM","Batch Grouping","Doublet","High Intron","Low Quality"))
+    useClust2 = as.character(useClust2[!grepl(val,useClust2)])
+  kpSamp2 = subsampleCells(Samp.dat$subclass_label,100)
+  kpSamp2 = kpSamp2&is.element(Samp.dat$cluster_label,useClust2)
+  
+  annoFACs2 = Samp.dat[kpSamp2,]
+  datFACs2 = as.matrix(Expr.dat[kpSamp2,names(Expr.dat)!="sample_id"])
+  rownames(datFACs2) = annoFACs2$sample_id
+  datFACs2 = t(datFACs2)
+  annoFACs2$subclass_label = make.names(annoFACs2$subclass_label)
+  annoFACs2 %<>% 
+    relocate(subclass_label, .after = sample_name) %>%
+    relocate(class_label, .after = subclass_label)
+  
+  # Define class labels
+  classBr = annoFACs2$subclass_label
+  classBr[annoFACs2$class_label!="Non-Neuronal"] = annoFACs2$class_label[annoFACs2$class_label!="Non-Neuronal"]
+  classBr = factor(classBr)
+  clustersF = factor(annoFACs2$subclass_label)
+
+  tmp = cbind(annoFACs2, datFACs2['Pvalb',])
+  names(tmp)[ncol(tmp)] = "gene"
+  tmp %>% ggplot(aes(x = gene, y = subclass_label)) + geom_jitter()
+  gc()
+}
+```
+
+### set up 
+
+```{r}
+# check
+
+
+# load markers directly from Lee et al. 2021
+markers = read.csv(file = "data/markers/mouse_class_markers.csv")
+markers = as.list(markers)
+allMarkers = unique(unlist(markers))
+allMarkers = intersect(allMarkers, row.names(datPat_all))
+markers = lapply(markers, function(x) x[x %in% allMarkers])
+
+markerTable = NULL
+for (i in 1:length(markers)) markerTable = cbind(markerTable,markers[[i]])
+colnames(markerTable) = names(markers)
+
+# format the data for FACS and patch-seq
+tmp = datPat_all
+rownames(tmp) = make.names(rownames(tmp))
+pat_df = as.data.frame(t(tmp[allMarkers, Expr.datp$sample_id])+1)
+pat_df$sample_id = rownames(pat_df)
+
+tmp = datFACs2
+rownames(tmp) = make.names(rownames(tmp))
+facs_df = as.data.frame(t(tmp[allMarkers,])+1)
+facs_df$sample_id = rownames(facs_df)
+facs_df$major_type = as.character(classBr)
+facs_df$contam_type = as.character(clustersF)
+
+```
+# define which subclass each patch-seq cell is assigned to, based on maximal marker expression
+
+```{r}
+nm  = names(markers)
+isOn = substr(nm,nchar(nm)-2,nchar(nm))=="_on"
+useThese = nm[isOn&(!is.element(nm,paste0(nm,"_on")))]
+useThese = setdiff(useThese,c("CR_on","Meis2_on")) # These types are rare and unlikely to be actually patched.
+
+subclassDat = calcContamAllTypes(pat_df, markers[useThese])  # Identify subclass based on marker gene expression
+subclass = colnames(subclassDat)[subclassDat %>% apply(1,which.max)]
+subclass = gsub("_on","",subclass)
+
+pat_df$contam_type = subclass
+# pat_df$contam_type = 'L2.3.IT' # hard-coded
+tmp2 = match(pat_df$contam_type, annoFACs2$subclass_label) 
+pat_df$major_type  = as.character(classBr)[tmp2]
+#pat_df$major_type = 'Glutamatergic' #hard-coded
+pat_df$contam_type = paste0(pat_df$contam_type,"_on")
+
+```
+
+# calculate the QC metrics 
+```{r}
+range01 = function(x){(x-min(x))/(max(x)-min(x))}
+
+# calculate 
+qcMetrics = calculatePatchSeqQCMetrics2(pat_df, facs_df, markers)
+# NMS score of 0.4 as a pass/fail call
+qcMetrics$QC_pass = c(TRUE,FALSE)[(qcMetrics$marker_sum_norm<0.40)+1]
+if(spcs == "mouse") qcMetrics = dplyr::rename(qcMetrics, Microglia = Macrophage)
+qcMetrics$Microglia = range01(qcMetrics$Microglia)
+
+write.csv(qcMetrics, file = "./output/scala_qcMetrics.csv")
+#write.csv(qcMetrics, file = "./output/mouse_qcMetrics.csv")
+```
+
+## mouse
+```{r, warning=FALSE}
+
+if(spcs == "mouse"){
+  num_markers = 20
+  plot_cell_types = c('Sst_on','Macrophage','Astro')
+  plot_marker_list = c(markers[plot_cell_types])
+  # don't include unknown marker genes in plot
+  rm_markers = str_detect(allMarkers, "^LOC|^LINC|^KIAA|^SLC|^MT-|^RP[0-9]|^BC[0-9]|-PS")
+  rm_markers = allMarkers[rm_markers]
+  
+  trimmed_marker_list = lapply(plot_marker_list, function(x){
+    ind = which(x %in% rownames(datPat_all))
+    tmp = make.names(x[ind])
+    tmp = tmp[which(!tmp %in% rm_markers)]
+    tmp = head(tmp, num_markers)
+    }
+  )
+  pat_samps = qcMetrics %>%
+    filter(contam_type == "Sst_on") %>%
+    #arrange(desc(Microglia)) %>%
+    pull(sample_id)
+  exp_mat = datPat_all[unlist(trimmed_marker_list), pat_samps]
+  exp_mat = log2(exp_mat +1) 
+  #exp_mat = cbind(annoPat_all[annoPat_all$transcriptomics_sample_id %in% pat_samps,], exp_mat) 
+  
+  order_samps = lapply(trimmed_marker_list, function(x){
+    tmp = exp_mat[x,]
+    tmp = tmp[,order(colMeans(tmp), decreasing = T)]
+    colnames(tmp)
+  }) 
+  order_markers = lapply(trimmed_marker_list, function(x){
+    tmp = exp_mat[x,]
+    tmp = tmp[order(rowMeans(tmp), decreasing = F),]
+    rownames(tmp)
+  })
+  
+  pal = colorRampPalette(rev(brewer.pal(n = 21, name = "RdYlBu")))(20)
+  
+  m = datPat_all[trimmed_marker_list[[1]], pat_samps]
+  m = log2(m +1) 
+  df = melt(m) %>%
+    mutate(Var1 = factor(Var1, levels = order_markers[[1]])) %>%
+    mutate(Var2 = factor(Var2, levels = order_samps[[2]]))
+  m1 = ggplot(df, aes(Var2, Var1, fill = value, color = value)) +
+    geom_tile() +
+    scale_fill_gradientn(colors = pal, breaks = seq(0,12,2), labels = seq(0,12,2), limits = c(0,12)) +
+    scale_color_gradientn(colors = pal, breaks = seq(0,12,2), labels = seq(0,12,2), limits = c(0,12), guide = "none") +
+    guides(fill = guide_colourbar(barwidth = 10, barheight = 0.5)) +
+    labs(x = "", y = "SST Interneuron\nmarkers", fill = "Log2\nExpression") + 
+    theme(axis.text.x = element_blank(),
+          axis.text.y = element_text(size = 8),
+          axis.ticks.x = element_blank(),
+          plot.title = element_text(size = 12, hjust = 0.5),
+          plot.margin = unit(c(0,0.5,0,0.5), "cm"),
+          legend.position = "bottom",
+          legend.justification = "left",
+          legend.title = element_text(vjust = 1.3),
+          legend.text.align = 0,
+          legend.title.align = 1,
+          axis.text = element_text(size = 12),
+          axis.title = element_text(size = 16)
+          )
+  m = datPat_all[trimmed_marker_list[[2]], pat_samps]
+  m = log2(m +1) 
+  df = melt(m) %>%
+    mutate(Var1 = factor(Var1, levels = order_markers[[2]])) %>%
+    mutate(Var2 = factor(Var2, levels = order_samps[[2]]))
+  m2 = ggplot(df, aes(Var2, Var1, fill = value, color = value)) +
+    geom_tile() +
+    scale_fill_gradientn(colors = pal, breaks = seq(0,12,2), labels = seq(0,12,2), limits = c(0,12)) +
+    scale_color_gradientn(colors = pal, breaks = seq(0,12,2), labels = seq(0,12,2), limits = c(0,12), guide = "none") +
+    guides(fill = guide_colourbar(barwidth = 10, barheight = 0.5)) +
+    labs(x = "", y = "Microglia\nmarkers", fill = "Log2\nExpression") + 
+    theme(axis.text.x = element_blank(),
+          axis.text.y = element_text(size = 8),
+          axis.ticks.x = element_blank(),
+          plot.margin = unit(c(0,0.5,0,0.5), "cm"),
+          legend.position = "bottom",
+          legend.justification = "left",
+          legend.title = element_text(vjust = 1.3),
+          legend.text.align = 0,
+          legend.title.align = 1,
+          axis.text = element_text(size = 12),
+          axis.title = element_text(size = 16)
+          )
+  m = datPat_all[trimmed_marker_list[[3]], pat_samps]
+  m = log2(m +1) 
+  df = melt(m) %>%
+    mutate(Var1 = factor(Var1, levels = order_markers[[3]])) %>%
+    mutate(Var2 = factor(Var2, levels = order_samps[[2]]))
+  m3 = ggplot(df, aes(Var2, Var1, fill = value, color = value)) +
+    geom_tile() +
+    scale_fill_gradientn(colors = pal, breaks = seq(0,12,2), labels = seq(0,12,2), limits = c(0,12)) +
+    scale_color_gradientn(colors = pal, breaks = seq(0,12,2), labels = seq(0,12,2), limits = c(0,12), guide = "none") +
+    guides(fill = guide_colourbar(barwidth = 10, barheight = 0.5)) +
+    labs(x = "", y = "Astrocyte\nmarkers", fill = "Log2\nExpression") + 
+    theme(axis.text.x = element_blank(),
+          axis.text.y = element_text(size = 8),
+          axis.ticks.x = element_blank(),
+          plot.margin = unit(c(0,0.5,0,0.5), "cm"),
+          legend.position = "bottom",
+          legend.justification = "left",
+          legend.title = element_text(vjust = 1.3),
+          legend.text.align = 0,
+          legend.title.align = 1,
+          axis.text = element_text(size = 12),
+          axis.title = element_text(size = 16)
+          )
+  
+  mouse_heatmap_p = ggarrange(m1, NULL, m2, NULL, m3, ncol = 1, common.legend = T, legend = "bottom", align = "v", heights = c(1,-0.09,1,-0.09,1)) 
+  mouse_heatmap_p = annotate_figure(mouse_heatmap_p, top = text_grob("SST Interneurons (Mouse)", hjust = 0.3, size = 16))
+  mouse_heatmap_p
+}
+
+```
+
+# plot microglia score distribution
+```{r}
+
+# mouse_qc = read.csv(file = "./output/mouse_qcMetrics.csv") %>% mutate(Group = "Mouse")
+
+scala_qc = read.csv(file = "./output/scala_qcMetrics.csv") %>% mutate(Group = "Scala")
+
+
+# mouse_qc = qc_joined
+
+mouse_contam_p = ggplot() + 
+  #geom_density(data = human_qc, aes(Microglia), size = 1.5, color = "lightgrey", fill = "grey", alpha = 0.1) + 
+  geom_density(data = scala_qc, aes(x = Microglia, group = major_type), 
+               size = 1.5, color = "black", fill = "grey", alpha = 0.25) + 
+  #geom_vline(xintercept = mean(human_qc$Microglia), size = 1, color = "lightgrey", linetype = "dashed") +
+  geom_vline(xintercept = mean(scala_qc$Microglia), size = 1, color = "black", linetype = "dashed") +
+  scale_y_continuous(limits = c(0,5.5)) +
+  labs(x = "Microglia Contamination Score", y = "Density") +
+  coord_flip() +
+  theme_classic() + 
+  theme(legend.position = "none",
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 16)) 
+mouse_contam_p
+
+```
