@@ -55,22 +55,29 @@ metadata_h = fread(file = here("data","patchseq","20200625_patchseq_metadata_hum
   dplyr::select(c(ephys_session_id, sample_id, donor_id, cell_soma_normalized_depth, cluster_label, depth_from_pia_um)) %>%
   left_join(., qcMetrics_h, by = "sample_id") %>%
   left_join(., ephys_h, by = "ephys_session_id")
+
 # load summarized ephys features 
 # patch-seq mouse
 qcMetrics_m = read.csv(file = here("output","mouse_qcMetrics.csv"))
+
 metadata_m = fread(file = here("data","patchseq","20200625_patchseq_metadata_mouse.csv"), data.table = FALSE) %>%
   dplyr::rename(sample_id = transcriptomics_sample_id)
 metadata_m = merge(metadata_m, qcMetrics_m %>% dplyr::select(c("sample_id","major_type","contam_type","quality_score","Microglia")), by = "sample_id")
 metadata_m = metadata_m[colSums(!is.na(metadata_m))>0]
 rownames(metadata_m) = metadata_m$sample_id
+
 metadata_m = metadata_m %>% mutate(cluster_label = str_extract(corresponding_AIT2.3.1_alias, "\\w+")) 
+metadata_m = metadata_m %>% separate(corresponding_AIT2.3.1_alias, into = c("subclass", "second")) %>% 
+  unite(col = "corresponding_AIT2.3.1_alias", subclass, second, sep = " ")
 leaveout = metadata_m %>% dplyr::count(corresponding_AIT2.3.1_alias, sort = TRUE) %>% filter(n < 20) %>% pull(corresponding_AIT2.3.1_alias) %>% unique()
-leaveout = c(leaveout,"",NA)
+leaveout = c(leaveout,"",NA, " NA")
 metadata_m = metadata_m %>% filter(!corresponding_AIT2.3.1_alias %in% leaveout) 
+
 metadata_m$cluster_label = factor(metadata_m$cluster_label, 
                                   levels = c("Lamp5","Pvalb","Serpinf1","Sncg","Sst","Vip"),
                                   labels = c("Lamp5","Pvalb","Serpinf1","Sncg","Sst","Vip"),
                                   )
+
 ephys_m = read.csv(file = here("data","processed_ephys","mouse_ephys_features_gouwens.csv"))[,-1] %>% 
   mutate(new_ephys_ses_id = str_extract(ephys_session_id, pattern = "(\\d)+_icephys.nwb"), 
          ephys_session_id = str_extract(new_ephys_ses_id, "(\\d)+") %>% as.numeric())
@@ -110,7 +117,7 @@ metadata_scala =  metadata_scala %>% filter(`Rheobase (pA)` > 0) %>%
     threshold_v = `AP threshold (mV)`,
     trough_v = `AP threshold (mV)` + `Afterhyperpolarization (mV)`,
     v_baseline = `Resting membrane potential (mV)`,
-    sag = `Sag ratio`,
+    sag = 1 - `Sag ratio`,
     adapt = `ISI adaptation index`
                         
 )
@@ -135,6 +142,25 @@ metadata_h[metadata_h$ephys_session_id == 732048771, 'size'] = 5
 metadata_h[metadata_h$ephys_session_id == 732091715, 'color'] = '#D43F3AFF'
 metadata_h[metadata_h$ephys_session_id == 732091715, 'size'] = 5
 
+
+# subset to samples with cell soma normalized depth and microglia scores 
+# metadata_h = metadata_h[!is.na(metadata_h$cell_soma_normalized_depth),]
+metadata_m = metadata_m[!is.na(metadata_m$Microglia),]
+metadata_m$color = 'black'
+metadata_m$size = 1
+# low microglia cell example: 732048771	SM-GE8YK_S028_E1-50	H18.03.314	ephys_session_id sample_id donor_id # sub-731978186_ses-732048771_icephys.nwb, #355 um deep
+# high microglia cell example: 732091715	SM-GE8YK_S031_E1-50	H18.03.314 ephys_session_id sample_id donor_id # sub-731978186_ses-732091715_icephys.nwb #331 um deep
+# nwb datasets are on the scc here: /external/rprshnas01/netdata_kcni/stlab/Public/AIBS_patchseq_2020/human/ephys/000023/
+metadata_m[metadata_m$ephys_session_id == 892441714, 'color'] = '#357EBDFF'
+metadata_m[metadata_m$ephys_session_id == 892441714, 'size'] = 5
+metadata_m[metadata_m$ephys_session_id == 892424119, 'color'] = '#D43F3AFF'
+metadata_m[metadata_m$ephys_session_id == 892424119, 'size'] = 5
+
+metadata_m %>% filter(corresponding_AIT2.3.1_alias == 'Pvalb Sema3e Kank4', donor_id == 470303) %>% 
+  group_by(donor_id) %>% mutate(cells_per_donor = n()) %>% ungroup() %>%
+  select(Microglia, cell_soma_normalized_depth, input_resistance, trough_v, v_baseline, everything()) %>% 
+  as.data.frame() %>% mutate(input_resistance = 10^input_resistance) %>% arrange(-cells_per_donor, donor_id, Microglia)
+
 human_plot_rin = metadata_h %>% filter(cluster_label == 'FREM3') %>% 
   ggplot(aes(x = Microglia, y = 10^input_resistance, color = color, size = size)) + 
   geom_smooth(method = "lm", se = F) +
@@ -143,11 +169,12 @@ human_plot_rin = metadata_h %>% filter(cluster_label == 'FREM3') %>%
   scale_size_identity() + 
   scale_y_log10() + 
   ylab('Input resistance (MOhms)') + 
-  xlab('Microglia Score') + 
+  xlab('Microglia score') + 
   theme_classic() + 
   theme(axis.text = element_text(size = 12),
         axis.title = element_text(size = 16))  +
   stat_cor(method = "pearson", size = 4, label.x = 0, label.y = 2.5)
+
 
 human_plot_ap_trough = metadata_h %>% filter(cluster_label == 'FREM3') %>% 
   ggplot(aes(x = Microglia, y = trough_v, color = color, size = size)) + 
@@ -161,10 +188,121 @@ human_plot_ap_trough = metadata_h %>% filter(cluster_label == 'FREM3') %>%
   theme(axis.text = element_text(size = 12),
         axis.title = element_text(size = 16))  +
   stat_cor(method = "pearson", size = 4, label.x = 0, label.y = -30)
-  
-ephys_example_plots = plot_grid(human_plot_rin, human_plot_ap_trough, nrow = 1)
+
+mouse_gouwens_plot_rin = metadata_m %>% filter(10^input_resistance > 50, 10^input_resistance < 300) %>% 
+  filter(corresponding_AIT2.3.1_alias == 'Pvalb Sema3e') %>% 
+  ggplot(aes(x = Microglia, y = 10^input_resistance, color = color, size = size)) + 
+  geom_smooth(method = "lm", se = F) +
+  geom_point(shape = 16, alpha = 0.75) + 
+  scale_color_identity() + 
+  scale_size_identity() + 
+  scale_y_log10() + 
+  # ylim(c(100, 650)) + 
+  ylab('Input resistance (MOhms)') + 
+  xlab('Microglia score') + 
+  theme_classic() + 
+  theme(axis.text = element_text(size = 12),
+        axis.title = element_text(size = 16))  +
+  stat_cor(method = "pearson", size = 4, label.x = 0, label.y = 2.5)
+
+mouse_gouwens_plot_ap_trough = metadata_m %>%  
+  filter(v_baseline < -50) %>% 
+  filter(corresponding_AIT2.3.1_alias == 'Pvalb Sema3e') %>% 
+  ggplot(aes(x = Microglia, y = v_baseline, color = color, size = size)) + 
+  geom_smooth(method = "lm", se = F) +
+  geom_point(shape = 16, alpha = 0.75) + 
+  scale_color_identity() + 
+  scale_size_identity() + 
+  # ylim(c(100, 650)) + 
+  ylab('RMP (mV)') +  
+  xlab('Microglia score') + 
+  theme_classic() + 
+  theme(axis.text = element_text(size = 12),
+        axis.title = element_text(size = 16))  +
+  stat_cor(method = "pearson", size = 4, label.x = 0, label.y = -50)
+
+ephys_example_plots = plot_grid(human_plot_rin, human_plot_ap_trough, mouse_gouwens_plot_rin, mouse_gouwens_plot_ap_trough, nrow = 2)
 ephys_example_plots
 
+metadata_m %>% group_by(corresponding_AIT2.3.1_alias) %>% summarize(corr_val_rmp = cor(Microglia, v_baseline, use = 'pairwise.complete.obs'),
+                                                                    corr_val_rin = cor(Microglia, input_resistance, use = 'pairwise.complete.obs'),
+                                                                    corr_val_trough_v = cor(Microglia, trough_v, use = 'pairwise.complete.obs'), 
+                                                                    corr_val_fi_slope = cor(Microglia, fi_fit_slope, use = 'pairwise.complete.obs'),
+                                                                    count = n()) %>% 
+  filter(count > 100) %>%
+  arrange(-corr_val_rmp) %>% 
+  as.data.frame()
+
+
+mouse_scala_plot_rin_exc = metadata_scala %>% filter(10^input_resistance > 30, 10^input_resistance < 500) %>%  
+  filter(subclass == 'L2.3 IT') %>%
+  ggplot(aes(x = Microglia, y = 10^input_resistance)) + 
+  geom_smooth(method = "lm", se = F) +
+  geom_point(shape = 16) + 
+  scale_color_identity() + 
+  scale_size_identity() + 
+  scale_y_log10() + 
+  ylab('Input resistance (MOhms)') + 
+  xlab('Microglia Score') + 
+  theme_classic() + 
+  theme(axis.text = element_text(size = 12),
+        axis.title = element_text(size = 16))  +
+  stat_cor(method = "pearson", size = 4, label.x = 0, label.y = 2.5)
+
+mouse_scala_plot_apwidth_exc = metadata_scala %>% 
+  filter(subclass == 'L2.3 IT') %>% 
+  # filter(10^width / 1000 > 1) %>% 
+  ggplot(aes(x = Microglia, y = 10^width / 1000)) + 
+  geom_smooth(method = "lm", se = F) +
+  geom_point(shape = 16) + 
+  scale_color_identity() + 
+  scale_size_identity() + 
+  # scale_y_log10() + 
+  ylab('Spike width (ms)') + 
+  xlab('Microglia Score') + 
+  theme_classic() + 
+  theme(axis.text = element_text(size = 12),
+        axis.title = element_text(size = 16))  +
+  stat_cor(method = "pearson", size = 4, label.y = 3) 
+
+mouse_scala_plot_rin_inh = metadata_scala %>% filter(10^input_resistance > 30, 10^input_resistance < 500) %>%  
+  filter(subclass == 'Pvalb') %>% 
+  ggplot(aes(x = Microglia, y = 10^input_resistance)) + 
+  geom_smooth(method = "lm", se = F) +
+  geom_point(shape = 16) + 
+  scale_color_identity() + 
+  scale_size_identity() + 
+  scale_y_log10() + 
+  ylab('Input resistance (MOhms)') + 
+  xlab('Microglia Score') + 
+  theme_classic() + 
+  theme(axis.text = element_text(size = 12),
+        axis.title = element_text(size = 16))  +
+  stat_cor(method = "pearson", size = 4, label.x = 0, label.y = 2.7)
+
+mouse_scala_plot_threshold_v_inh = metadata_scala %>% 
+  filter(subclass == 'Pvalb') %>% 
+  #filter(corresponding_AIT2.3.1_alias %in% c('L2.3 IT VISp', 'L2.3 IT ALM')) %>% 
+  ggplot(aes(x = Microglia, y = threshold_v)) + 
+  geom_smooth(method = "lm", se = F) +
+  geom_point(shape = 16) + 
+  scale_color_identity() + 
+  scale_size_identity() + 
+  ylab('AP threshold (mV)') + 
+  xlab('Microglia Score') + 
+  theme_classic() + 
+  theme(axis.text = element_text(size = 12),
+        axis.title = element_text(size = 16))  +
+  stat_cor(method = "pearson", size = 4) 
+
+scala_ephys_example_plots = plot_grid(mouse_scala_plot_rin_exc, mouse_scala_plot_apwidth_exc, 
+                                      mouse_scala_plot_rin_inh, mouse_scala_plot_threshold_v_inh, nrow = 2)
+scala_ephys_example_plots
+
+```
+### do stats modelling for ephys terms
+
+```{r}
 # have discussion about what terms to use in each model - IMO we should use depth_from_pia_um as it's avail for most human samples but 
 # no depth norm term for mice as it's not present for most mouse samples
 form = scale(input_resistance) ~ 0 + (1|corresponding_AIT2.3.1_alias) + Microglia + (1|donor_id)
@@ -200,19 +338,29 @@ for(f in model_features_list){
   tidy_df = tidy(lmer(formula, data = metadata_m, REML = FALSE)) %>%
     filter(effect == "fixed") %>%
     mutate(term = str_replace(term, "corresponding_AIT2.3.1_alias", "")) %>%
-    mutate(term = recode(term, `scale(Microglia)` = "Microglia")) 
+    mutate(term = recode(term, `scale(Microglia)` = "Microglia", `scale(depth_from_pia_um)` = "Abs. depth")) 
   tidy_df$ephys_prop = f
   tidy_df$species = 'mouse_gouwens'
   keep_df = bind_rows(keep_df, tidy_df)
   
-  formula = paste0('scale(', f, ') ~ 1 + (1|corresponding_AIT2.3.1_alias) + Microglia + (1|donor_id)')
+  formula = paste0('scale(', f, ') ~ 1 + (1|corresponding_AIT2.3.1_alias) + Microglia + (1|donor_id) + scale(depth_from_pia_um)')
   print(formula)
-  tidy_df = tidy(lmer(formula, data = metadata_scala, REML = FALSE)) %>%
+  tidy_df = tidy(lmer(formula, data = metadata_scala %>% filter(class == 'Glutamatergic')), REML = FALSE) %>%
     filter(effect == "fixed") %>%
     mutate(term = str_replace(term, "corresponding_AIT2.3.1_alias", "")) %>%
-    mutate(term = recode(term, `scale(Microglia)` = "Microglia")) 
+    mutate(term = recode(term, `scale(Microglia)` = "Microglia", `scale(depth_from_pia_um)` = "Abs. depth")) 
   tidy_df$ephys_prop = f
-  tidy_df$species = 'mouse_scala'
+  tidy_df$species = 'mouse_scala_exc'
+  keep_df = bind_rows(keep_df, tidy_df)
+  
+  formula = paste0('scale(', f, ') ~ 1 + (1|corresponding_AIT2.3.1_alias) + Microglia + (1|donor_id) + scale(depth_from_pia_um)')
+  print(formula)
+  tidy_df = tidy(lmer(formula, data = metadata_scala %>% filter(class == 'GABAergic')), REML = FALSE) %>%
+    filter(effect == "fixed") %>%
+    mutate(term = str_replace(term, "corresponding_AIT2.3.1_alias", "")) %>%
+    mutate(term = recode(term, `scale(Microglia)` = "Microglia", `scale(depth_from_pia_um)` = "Abs. depth")) 
+  tidy_df$ephys_prop = f
+  tidy_df$species = 'mouse_scala_inh'
   keep_df = bind_rows(keep_df, tidy_df)
 }
 keep_df$ephys_prop = factor(keep_df$ephys_prop, 
@@ -223,9 +371,12 @@ remove_ephys_props = c('AP amp', 'AHP amp')
 bar_graph_plot = keep_df %>% filter(term == 'Microglia', !ephys_prop %in% remove_ephys_props) %>% 
   ggplot(aes(x = ephys_prop, y = estimate, fill = species)) + 
   geom_bar(stat = "identity", position = "dodge2") +
-  geom_errorbar(aes(x = ephys_prop, y = estimate, ymin = estimate - std.error, ymax = estimate + std.error), position = "dodge2") +
+  geom_errorbar(aes(x = ephys_prop, 
+                    y = estimate, ymin = estimate - 1.96 * std.error, 
+                    ymax = estimate +  1.96 * std.error), 
+                position = "dodge2") +
   theme_classic() + 
-  scale_fill_manual(values = c('#9632B8FF', '#EEA236FF', "dark green")) +
+  scale_fill_manual(values = c('#9632B8FF', '#EEA236FF', "dark green", 'light green')) +
   geom_hline(yintercept = 0) + 
   ylab('Microglial assoc (Beta)') + 
   theme(axis.text.x = element_text(angle = 60, hjust = 1, vjust = 1, size = 15), 
@@ -247,14 +398,21 @@ metadata_h %>% filter(cluster_label == 'FREM3', !is.na(depth_from_pia_um)) %>% g
 metadata_h %>% filter(donor_id == 'H18.03.314', cluster_label == 'FREM3') %>% arrange(depth_from_pia_um) %>% select(Microglia, cell_soma_normalized_depth, depth_from_pia_um, input_resistance, trough_v, everything()) %>% as.data.frame() %>% mutate(input_resistance = 10^input_resistance)
 metadata_h %>% filter(donor_id == 'H18.06.368', cluster_label == 'FREM3') %>% arrange(cell_soma_normalized_depth) %>% select(Microglia, cell_soma_normalized_depth, depth_from_pia_um, input_resistance, trough_v, everything()) %>% as.data.frame() %>% mutate(input_resistance = 10^input_resistance)
 metadata_h %>% filter(donor_id == 'H18.03.319', cluster_label == 'FREM3') %>% arrange(cell_soma_normalized_depth) %>% select(Microglia, cell_soma_normalized_depth, depth_from_pia_um, input_resistance, trough_v, everything()) %>% as.data.frame() %>% mutate(input_resistance = 10^input_resistance)
+
 metadata_m %>%  group_by(donor_id, corresponding_AIT2.3.1_alias) %>% 
   summarize(num_cells = n(), max_micro_score = max(Microglia), min_micro_score = min(Microglia), diff_micro_score = max_micro_score - min_micro_score) %>%   arrange(-diff_micro_score)
-metadata_m %>% filter(donor_id == '460700', corresponding_AIT2.3.1_alias == 'Sst Calb2 Pdlim5') %>% select(Microglia, cell_soma_normalized_depth, input_resistance, trough_v, everything()) %>% as.data.frame() %>% mutate(input_resistance = input_resistance)
+
+metadata_m %>% filter(donor_id == '460700', corresponding_AIT2.3.1_alias == 'Sst Calb2 Pdlim5') %>% select(Microglia, cell_soma_normalized_depth, input_resistance, trough_v, everything()) %>% as.data.frame() %>% mutate(input_resistance = 10^input_resistance)
 # low microglia cell example: 732048771	SM-GE8YK_S028_E1-50	H18.03.314	ephys_session_id sample_id donor_id 
 # high microglia cell example: 732091715	SM-GE8YK_S031_E1-50	H18.03.314 ephys_session_id sample_id donor_id 
 # maybe this pair too?
 # low microglia cell example: 770369639	SM-GE5U8_S069_E1-50	H18.03.319	ephys_session_id sample_id donor_id
 # high microglia cell example: 770466547	SM-GE5U8_S070_E1-50	H18.03.319 ephys_session_id sample_id donor_id
+
+
+# do same as above for cells from gouwens
+metadata_m %>% filter(cluster_label == 'Pvalb') %>% group_by(donor_id) %>% 
+  summarize(num_cells = n(), max_micro_score = max(Microglia), min_micro_score = min(Microglia), diff_micro_score = max_micro_score - min_micro_score) %>%   arrange(-diff_micro_score)
 ```
 
 ## linear models to compare microglia score with ephys features 
