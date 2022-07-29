@@ -315,18 +315,16 @@ scala_qc = read.csv(file = "./output/scala_qcMetrics.csv") %>% mutate(Group = "S
 
 # mouse_qc = qc_joined
 
-mouse_contam_p = ggplot() + 
-  #geom_density(data = human_qc, aes(Microglia), size = 1.5, color = "lightgrey", fill = "grey", alpha = 0.1) + 
-  geom_density(data = scala_qc, aes(x = Microglia, group = major_type), 
-               size = 1.5, color = "black", fill = "grey", alpha = 0.25) + 
-  #geom_vline(xintercept = mean(human_qc$Microglia), size = 1, color = "lightgrey", linetype = "dashed") +
+scala_qc$major_type = factor(scala_qc$major_type, levels = c('GABAergic', 'Glutamatergic'))
+mouse_contam_p = ggplot() + geom_density(data = scala_qc, 
+                                         aes(x = Microglia, group = major_type, color = major_type), 
+               size = 1.5, alpha = 0.25) + 
   geom_vline(xintercept = mean(scala_qc$Microglia), size = 1, color = "black", linetype = "dashed") +
   scale_y_continuous(limits = c(0,5.5)) +
   labs(x = "Microglia Contamination Score", y = "Density") +
   coord_flip() +
   theme_classic() + 
-  theme(legend.position = "none",
-        axis.text = element_text(size = 12),
+  theme(axis.text = element_text(size = 12),
         axis.title = element_text(size = 16)) 
 mouse_contam_p
 
