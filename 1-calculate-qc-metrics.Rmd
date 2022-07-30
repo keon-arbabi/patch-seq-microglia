@@ -134,7 +134,7 @@ if(file.exists("./local/mouse_VISp_FACs/mouse_VISp_2018-06-14_readme.txt") == FA
   
   # output the results to feather files 
   dir.create("./local/FACs")
-  dir.create("./local/FACS/mouse")
+  dir.create("./local/FACS/mouse/")
   # write annotation file
   write_feather(anno,"./local/FACs/mouse/anno.feather")
   # write data file
@@ -145,8 +145,8 @@ if(file.exists("./local/mouse_VISp_FACs/mouse_VISp_2018-06-14_readme.txt") == FA
 
 # Read in the data
 if(spcs == "mouse"){
-  Samp.dat = read_feather(here("local","FACs_processed","mouse","anno.feather")) 
-  Expr.dat = feather(here("local","FACs_processed","mouse","data.feather")) # FPKM
+  Samp.dat = read_feather(here("local","FACs","mouse","anno.feather")) 
+  Expr.dat = feather(here("local","FACs","mouse","data.feather")) # FPKM
   Samp.dat = Samp.dat[match(Expr.dat$sample_id,Samp.dat$sample_id),]
   
   # Define a second annotation and data file with all clusters

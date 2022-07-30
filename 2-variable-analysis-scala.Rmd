@@ -35,13 +35,37 @@ suppressPackageStartupMessages({
 
 ```
 
-# scala analysis
+# scala analysis - read in data
 ```{r}
 
-metadata_scala = read_csv('data/patchseq/scala_scMetrics.csv')
+scala_qc_metrics = read_csv("./output/scala_qcMetrics.csv")
+
+# which data, "human" or "mouse"
+spcs = "mouse"  
+
+# read scala metadata from url from githib repo - https://github.com/berenslab/mini-atlas
+scala_meta_url = 'https://raw.githubusercontent.com/berenslab/mini-atlas/master/data/m1_patchseq_meta_data.csv'
+meta = read_tsv(url(scala_meta_url)) 
+
+metadata_scala = left_join(meta, scala_qc_metrics, by = c('Cell'= 'sample_id'))
+
+```
+
+# munge and convert scala column names
+```{r}
+
+metadata_scala = metadata_scala %>% 
+  separate(`ALM/VISp top-3`, into = c('top_cluster_string'), remove = F, sep = ' ,') %>% 
+  separate(top_cluster_string, into = c('top_alm_visp_cluster', 'cluster_score_string'), remove = F, sep = ' \\(') %>% 
+  mutate(top_alm_visp_cluster = str_trim(top_alm_visp_cluster)) %>%
+  separate(top_alm_visp_cluster, into = c('top_alm_visp_subclass', 'rest'), remove = F, sep = ' ') %>% 
+  separate(top_cluster_string, into = c('top_alm_visp_cluster', 'cluster_score_string'), remove = F, sep = ' \\(') %>% 
+  mutate(top_alm_visp_cluster = str_trim(top_alm_visp_cluster)) %>%
+  separate(cluster_score_string, into = c('cluster_score_string_number', 'rest'), remove = F, sep = '\\%\\)') %>% 
+  mutate(top_cluster_score = as.numeric(cluster_score_string_number))  
+
 metadata_scala = metadata_scala %>% mutate(depth_from_pia_um = as.numeric(`Soma depth (µm)`)) %>%
   dplyr::rename(age = `Mouse age`, 
-                Microglia = Macrophage, 
                 biological_sex = `Mouse gender`, 
                 donor_id = Mouse, 
                 hold_time = `Hold Time (min)`, # how long was cell recorded?
@@ -86,6 +110,7 @@ metadata_scala$cluster_label = factor(metadata_scala$cluster_label,
                                   labels = c("Lamp5","Pvalb","Serpinf1","Sncg","Sst","Vip", "L5 PT", "L6 IT" , "L5 IT", "L4 IT" , "L2.3 IT", "L6 CT"),
                                   )
 ```
+
 ## univariate plots 
 ```{r}
 # order factor levels of cell types by microglia scores
@@ -151,22 +176,9 @@ cell_types_microglia_plot = metadata_scala %>%
   # stat_compare_means(method = "kruskal.test", label.y = 1, label.x = 1.5, size = 4) +
   facet_grid(~class, scales = "free_x", space = "free_x")
 
-
-
-# 
-# m3 = metadata_scala %>% ggplot(aes(x = cell_num, y = Microglia)) + 
-#   geom_point(size = 1.5, shape = 16, color = "black") + 
-#   geom_smooth(method = "lm", se = FALSE, color = "black", lwd = 1.0) +
-#   labs(x = "Cell Soma Normalized\nDepth (N = 696)", y = "") +
-#   theme_classic() +
-#   stat_cor(method = "spearman", label.y = 1, size = 5)
-
-# mouse_univar_plot = plot_grid(m2, m1, nrow = 1, align = "h", rel_widths = c(2, 5))
-# mouse_univar_plot
-
 ```
 
-# integrate scala and gouwens microglia effects per cell type
+# integrate scala and gouwens microglia effects per cell type - this requires running 2-variable-analysis.Rmd
 ```{r}
 metadata_scala = metadata_scala %>% group_by(corresponding_AIT2.3.1_alias) %>% 
   mutate(median_cluster_label_Microglia_scala = median(Microglia), 
@@ -174,8 +186,6 @@ metadata_scala = metadata_scala %>% group_by(corresponding_AIT2.3.1_alias) %>%
 
 metadata_m = metadata_m %>% group_by(corresponding_AIT2.3.1_alias) %>% 
   mutate(median_cluster_label_Microglia_gouwens = median(Microglia), cell_count = n()) %>% ungroup()
-
-# metadata_scala$top_alm_visp_subclass = fct_reorder(metadata_scala$top_alm_visp_subclass, metadata_scala$median_cluster_label_Microglia)
 
 joined_type_medians = inner_join(metadata_scala %>% select(corresponding_AIT2.3.1_alias, median_cluster_label_Microglia_scala) %>% distinct(corresponding_AIT2.3.1_alias, .keep_all = T), 
            metadata_m %>% 
@@ -290,7 +300,7 @@ scala_mixed_model_plot = scala_stats_results %>%
 scala_mixed_model_plot
 ```
 
-## stats modeling
+## create final supplementary figure
 ```{r}
 bottom_row_plot = plot_grid(corresp_plot, scala_mixed_model_plot, nrow = 1)
 

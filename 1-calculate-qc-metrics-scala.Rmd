@@ -45,31 +45,29 @@ suppressPackageStartupMessages({
 # which data, "human" or "mouse"
 spcs = "mouse"  
 
-data_path = '/external/rprshnas01/netdata_kcni/stlab/Public/Scala_et_al_2020/mini-atlas/data/'
 
-unzip(paste0(data_path, 'm1_patchseq_intron_counts.csv.gz'))
+# read scala metadata from url from githib repo - https://github.com/berenslab/mini-atlas
+scala_meta_url = 'https://raw.githubusercontent.com/berenslab/mini-atlas/master/data/m1_patchseq_meta_data.csv'
+meta = read_tsv(url(scala_meta_url)) 
 
-meta = read_delim(paste0(data_path, 'm1_patchseq_meta_data.csv'), delim = '\t')
 
-scala_meta = meta %>% 
-  separate(`ALM/VISp top-3`, into = c('top_cluster_string'), remove = F, sep = ' ,') %>% 
-  separate(top_cluster_string, into = c('top_alm_visp_cluster', 'cluster_score_string'), remove = F, sep = ' \\(') %>% 
-  mutate(top_alm_visp_cluster = str_trim(top_alm_visp_cluster)) %>%
-  separate(top_alm_visp_cluster, into = c('top_alm_visp_subclass', 'rest'), remove = F, sep = ' ') %>% 
-  separate(top_cluster_string, into = c('top_alm_visp_cluster', 'cluster_score_string'), remove = F, sep = ' \\(') %>% 
-  mutate(top_alm_visp_cluster = str_trim(top_alm_visp_cluster)) %>%
-  separate(cluster_score_string, into = c('cluster_score_string_number', 'rest'), remove = F, sep = '\\%\\)') %>% 
-  mutate(top_cluster_score = as.numeric(cluster_score_string_number))  
+# read in scala gene exp counts from github
+scala_exon_counts_url = 'https://github.com/berenslab/mini-atlas/blob/master/data/m1_patchseq_exon_counts.csv.gz?raw=true'
+scala_intron_counts_url = 'https://github.com/berenslab/mini-atlas/blob/master/data/m1_patchseq_intron_counts.csv.gz?raw=true'
 
-scala_exon_counts = read_delim(paste0(data_path, 'm1_patchseq_exon_counts.csv'), delim = ',')
-scala_intron_counts = read_delim(gzfile(paste0(data_path, 'm1_patchseq_intron_counts.csv.gz')), delim = ',')
+
+zip_file <- tempfile(fileext = 'gz')
+download.file(scala_exon_counts_url, zip_file, mode = "wb")
+scala_exon_counts = read_csv(zip_file)
+
+zip_file <- tempfile(fileext = 'gz')
+download.file(scala_intron_counts_url, zip_file, mode = "wb")
+
+scala_intron_counts = read_csv(zip_file)
 
 scala_total_count = scala_exon_counts[-1] +  scala_intron_counts[-1]
 scala_lib_size = colSums(scala_total_count)
 scala_total_count$gene = scala_exon_counts$X1
-
-# scala_total_count = edgeR::cpm(scala_total_count, log = T, prior.count = 1)
-# rownames(scala_total_count) = scala_exon_counts$X1
 
 # patch-seq data 
 # scala total count here is already in cpm
@@ -83,6 +81,7 @@ datPat_all = as.matrix(Expr.datp[,names(Expr.datp)!="sample_id"])
 rownames(datPat_all) = Expr.datp$sample_id
 datPat_all = t(datPat_all)
 ```
+
 
 ```{r}
 # Read in the data
@@ -165,7 +164,6 @@ subclass = colnames(subclassDat)[subclassDat %>% apply(1,which.max)]
 subclass = gsub("_on","",subclass)
 
 pat_df$contam_type = subclass
-# pat_df$contam_type = 'L2.3.IT' # hard-coded
 tmp2 = match(pat_df$contam_type, annoFACs2$subclass_label) 
 pat_df$major_type  = as.character(classBr)[tmp2]
 #pat_df$major_type = 'Glutamatergic' #hard-coded
@@ -328,4 +326,54 @@ mouse_contam_p = ggplot() + geom_density(data = scala_qc,
         axis.title = element_text(size = 16)) 
 mouse_contam_p
 
+```
+
+
+# read in data from temperature recordings
+
+```{r}
+# # which data, "human" or "mouse"
+# spcs = "mouse"  
+# 
+# 
+# # read scala metadata from url from githib repo - https://github.com/berenslab/mini-atlas
+# scala_meta_url = 'https://raw.githubusercontent.com/berenslab/mini-atlas/master/data/m1_patchseq_phys_temp_meta_data.csv'
+# meta = read_tsv(url(scala_meta_url)) 
+# 
+# 
+# # i'm referring to my stored data on the scc, you can get it from here though: 
+# 
+# scala_exon_counts_url = 'https://github.com/berenslab/mini-atlas/blob/master/data/m1_patchseq_phys_temp_exon_counts.csv.gz?raw=true'
+# scala_intron_counts_url = 'https://github.com/berenslab/mini-atlas/blob/master/data/m1_patchseq_phys_temp_intron_counts.csv.gz?raw=true'
+# 
+# zip_file <- tempfile(fileext = 'gz')
+# download.file(scala_exon_counts_url, zip_file, mode = "wb")
+# scala_exon_counts = read_csv(zip_file)
+# 
+# zip_file <- tempfile(fileext = 'gz')
+# download.file(scala_intron_counts_url, zip_file, mode = "wb")
+# 
+# scala_intron_counts = read_csv(zip_file)
+# 
+# # data_path = '/external/rprshnas01/netdata_kcni/stlab/Public/Scala_et_al_2020/mini-atlas/data/'
+# 
+# 
+# scala_total_count = scala_exon_counts[-1] +  scala_intron_counts[-1]
+# scala_lib_size = colSums(scala_total_count)
+# scala_total_count$gene = scala_exon_counts$X1
+# 
+# # scala_total_count = edgeR::cpm(scala_total_count, log = T, prior.count = 1)
+# # rownames(scala_total_count) = scala_exon_counts$X1
+# 
+# # patch-seq data 
+# # scala total count here is already in cpm
+# Expr.datp = scala_total_count %>%
+#   column_to_rownames(var = "gene") %>%
+#   cpm() %>%
+#   t() %>% as.data.frame() %>%
+#   rownames_to_column(var = "sample_id")
+# 
+# datPat_all = as.matrix(Expr.datp[,names(Expr.datp)!="sample_id"])
+# rownames(datPat_all) = Expr.datp$sample_id
+# datPat_all = t(datPat_all)
 ```

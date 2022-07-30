@@ -1,0 +1,286 @@
+---
+title: "4a-ephys-analysis-scala"
+author: "Shreejoy Tripathy"
+date: "7/30/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# load libraries 
+```{r}
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(tidytext)
+  library(magrittr)
+  library(here)
+  library(data.table)
+  library(lme4)
+  library(lmerTest)
+  library(MuMIn)
+  library(GGally)
+  library(cowplot)
+  library(gridExtra)
+  library(ggpubr)
+  library(mice)
+  library(stringr)
+  library(svglite)
+  library(performance)
+  library(broom.mixed)
+  library(dotwhisker)
+})
+```
+
+### read in scala meta and ephys data
+```{r}
+
+
+scala_qc_metrics = read_csv("./output/scala_qcMetrics.csv")
+
+# which data, "human" or "mouse"
+spcs = "mouse"  
+
+# read scala metadata from url from githib repo - https://github.com/berenslab/mini-atlas
+scala_meta_url = 'https://raw.githubusercontent.com/berenslab/mini-atlas/master/data/m1_patchseq_meta_data.csv'
+meta = read_tsv(url(scala_meta_url)) 
+
+# scala ephys url
+scala_ephys_data_url = 'https://raw.githubusercontent.com/berenslab/mini-atlas/master/data/m1_patchseq_ephys_features.csv'
+scala_ephys = read_csv(url(scala_ephys_data_url))
+
+metadata_scala = left_join(meta, scala_qc_metrics, by = c('Cell'= 'sample_id'))
+
+metadata_scala = left_join(metadata_scala, scala_ephys, by = c('Cell' = "cell id"))
+```
+
+# munge scala column names
+```{r}
+
+
+metadata_scala = metadata_scala %>% 
+  separate(`ALM/VISp top-3`, into = c('top_cluster_string'), remove = F, sep = ' ,') %>% 
+  separate(top_cluster_string, into = c('top_alm_visp_cluster', 'cluster_score_string'), remove = F, sep = ' \\(') %>% 
+  mutate(top_alm_visp_cluster = str_trim(top_alm_visp_cluster)) %>%
+  separate(top_alm_visp_cluster, into = c('top_alm_visp_subclass', 'rest'), remove = F, sep = ' ') %>% 
+  separate(top_cluster_string, into = c('top_alm_visp_cluster', 'cluster_score_string'), remove = F, sep = ' \\(') %>% 
+  mutate(top_alm_visp_cluster = str_trim(top_alm_visp_cluster)) %>%
+  separate(cluster_score_string, into = c('cluster_score_string_number', 'rest'), remove = F, sep = '\\%\\)') %>% 
+  mutate(top_cluster_score = as.numeric(cluster_score_string_number))  
+
+metadata_scala = metadata_scala %>% mutate(depth_from_pia_um = as.numeric(`Soma depth (µm)`)) %>%
+  dplyr::rename(age = `Mouse age`, 
+                biological_sex = `Mouse gender`, 
+                donor_id = Mouse, 
+                hold_time = `Hold Time (min)`, # how long was cell recorded?
+                genotype = `Mouse genotype`) %>% 
+  separate(Sample, into = c('blah', 'cell_num'), remove = F) %>% # get cell recorded number
+  mutate(cell_num = as.numeric(cell_num)) %>% 
+  group_by(donor_id) %>% 
+  mutate(cell_count_per_donor = n(), 
+         norm_cell_num = rank(cell_num)) %>% # munge cell number into ranks (i.e., excluding unused / upatched cells)
+  ungroup()
+
+# munge names from scala dataset for excitatory cells
+metadata_scala_exc = metadata_scala %>% 
+  filter(grepl('L(\\d)', top_alm_visp_cluster )) %>% 
+  mutate(top_alm_visp_cluster = str_replace(top_alm_visp_cluster, '[/]', '.')) %>%
+  separate(top_alm_visp_cluster, into = c("layer", "type", "region"), remove = F, sep = " ") %>% 
+  unite(col = "subclass", layer, type, sep = " ", remove = F) %>% 
+  unite(col = "corresponding_AIT2.3.1_alias", layer, type, region, sep = " ", remove = F) %>% 
+  mutate(class = 'Glutamatergic')
+
+metadata_scala_exc[metadata_scala_exc$subclass %in% c("L6b VISp", "L6b P2ry12","L6b ALM", "L6b Hsd17b2"), 'subclass' ] = "L6b"
+  
+# munge names from inhibitory cells
+metadata_scala_inh = metadata_scala %>% filter(!grepl('L(\\d)', top_alm_visp_cluster )) %>%
+  separate(top_alm_visp_cluster, into = c("subclass", "second"), remove = F) %>% 
+  unite(col = "corresponding_AIT2.3.1_alias", subclass, second, sep = " ", remove = F) %>%
+  mutate(class = 'GABAergic')
+
+metadata_scala = bind_rows(metadata_scala_exc, metadata_scala_inh)
+
+# drop cell types from analysis with fewer than 10 cells
+leaveout = metadata_scala %>% dplyr::count(corresponding_AIT2.3.1_alias, sort = TRUE) %>% 
+  filter(n < 10) %>% 
+  pull(corresponding_AIT2.3.1_alias) %>% unique()
+leaveout = c(leaveout,"",NA, "NA NA")
+
+metadata_scala = metadata_scala %>% filter(!corresponding_AIT2.3.1_alias %in% leaveout) 
+
+metadata_scala$cluster_label = metadata_scala$subclass
+metadata_scala$cluster_label = factor(metadata_scala$cluster_label, 
+                                  levels = c("Lamp5","Pvalb","Serpinf1","Sncg","Sst","Vip", "L5 PT", "L6 IT" , "L5 IT", "L4 IT" , "L2.3 IT", "L6 CT"),
+                                  labels = c("Lamp5","Pvalb","Serpinf1","Sncg","Sst","Vip", "L5 PT", "L6 IT" , "L5 IT", "L4 IT" , "L2.3 IT", "L6 CT"),
+                                  )
+```
+
+
+
+
+### transform ephys properties as needed
+```{r}
+
+metadata_scala =  metadata_scala %>% filter(`Rheobase (pA)` > 0) %>% 
+  mutate(
+    input_resistance = log10(`Input resistance (MOhm)`), 
+    rheobase_i = log10(`Rheobase (pA)`), 
+    width = log10(`AP width (ms)` * 1000),
+    apamp = `AP amplitude (mV)` ,
+    ahpamp = -`Afterhyperpolarization (mV)`,
+    threshold_v = `AP threshold (mV)`,
+    trough_v = `AP threshold (mV)` + `Afterhyperpolarization (mV)`,
+    v_baseline = `Resting membrane potential (mV)`,
+    sag = 1 - `Sag ratio`,
+    adapt = `ISI adaptation index`
+                        
+)
+
+model_features_list = c('input_resistance', 'rheobase_i', 'width', 'apamp', 'ahpamp', 'threshold_v', 'trough_v', 'v_baseline', 'sag')
+
+```
+
+### generate some scatter plots to illustrate what might be happening with contamination
+
+```{r}
+
+mouse_scala_plot_rin_exc = metadata_scala %>% filter(10^input_resistance > 30, 10^input_resistance < 500) %>%  
+  filter(subclass == 'L2.3 IT') %>%
+  ggplot(aes(x = Microglia, y = 10^input_resistance)) + 
+  geom_smooth(method = "lm", se = F) +
+  geom_point(shape = 16) + 
+  scale_color_identity() + 
+  scale_size_identity() + 
+  scale_y_log10() + 
+  ylab('Input resistance (MΩ)') + 
+  xlab('Microglia Score') + 
+  theme_classic() + 
+  theme(axis.text = element_text(size = 12),
+        axis.title = element_text(size = 16))  +
+  stat_cor(method = "pearson", size = 4, label.x = 0, label.y = 2.5)
+
+mouse_scala_plot_apwidth_exc = metadata_scala %>% 
+  filter(subclass == 'L2.3 IT') %>% 
+  # filter(10^width / 1000 > 1) %>% 
+  ggplot(aes(x = Microglia, y = 10^width / 1000)) + 
+  geom_smooth(method = "lm", se = F) +
+  geom_point(shape = 16) + 
+  scale_color_identity() + 
+  scale_size_identity() + 
+  # scale_y_log10() + 
+  ylab('Spike width (ms)') + 
+  xlab('Microglia Score') + 
+  theme_classic() + 
+  theme(axis.text = element_text(size = 12),
+        axis.title = element_text(size = 16))  +
+  stat_cor(method = "pearson", size = 4, label.y = 3) 
+
+mouse_scala_plot_rin_inh = metadata_scala %>% filter(10^input_resistance > 30, 10^input_resistance < 500) %>%  
+  filter(subclass == 'Pvalb') %>% 
+  ggplot(aes(x = Microglia, y = 10^input_resistance)) + 
+  geom_smooth(method = "lm", se = F) +
+  geom_point(shape = 16) + 
+  scale_color_identity() + 
+  scale_size_identity() + 
+  scale_y_log10() + 
+  ylab('Input resistance (MΩ)') + 
+  xlab('Microglia Score') + 
+  theme_classic() + 
+  theme(axis.text = element_text(size = 12),
+        axis.title = element_text(size = 16))  +
+  stat_cor(method = "pearson", size = 4, label.x = 0, label.y = 2.7)
+
+mouse_scala_plot_threshold_v_inh = metadata_scala %>% 
+  filter(subclass == 'Pvalb') %>% 
+  #filter(corresponding_AIT2.3.1_alias %in% c('L2.3 IT VISp', 'L2.3 IT ALM')) %>% 
+  ggplot(aes(x = Microglia, y = threshold_v)) + 
+  geom_smooth(method = "lm", se = F) +
+  geom_point(shape = 16) + 
+  scale_color_identity() + 
+  scale_size_identity() + 
+  ylab('AP threshold (mV)') + 
+  xlab('Microglia Score') + 
+  theme_classic() + 
+  theme(axis.text = element_text(size = 12),
+        axis.title = element_text(size = 16))  +
+  stat_cor(method = "pearson", size = 4) 
+
+scala_ephys_example_plots = plot_grid(mouse_scala_plot_rin_exc, mouse_scala_plot_apwidth_exc, 
+                                      mouse_scala_plot_rin_inh, mouse_scala_plot_threshold_v_inh, nrow = 2)
+scala_ephys_example_plots
+
+```
+### do stats modelling for ephys terms
+
+```{r}
+
+# view features lacking enough data 
+# remove
+# metadata_h = metadata_h %>% dplyr::select(-c(slow_trough_v, slow_trough_t, adp_v, rheo_first_isi, adapt))
+
+plot_lst = list()
+# loop through ephys features 
+# note slight difference in models below for mouse vs human - see explanation above
+# the choice not to scale microglia is intentional as it makes it possible to compare terms between mouse and human more directly
+# (they have different SDs, they're implicitly scaled by this)
+keep_df = data.frame()
+for(f in model_features_list){
+  # prepare data 
+
+  
+  formula = paste0('scale(', f, ') ~ 1 + (1|corresponding_AIT2.3.1_alias) + Microglia + (1|donor_id) + scale(depth_from_pia_um)')
+  print(formula)
+  tidy_df = tidy(lmer(formula, data = metadata_scala %>% filter(class == 'Glutamatergic')), REML = FALSE) %>%
+    filter(effect == "fixed") %>%
+    mutate(term = str_replace(term, "corresponding_AIT2.3.1_alias", "")) %>%
+    mutate(term = recode(term, `scale(Microglia)` = "Microglia", `scale(depth_from_pia_um)` = "Abs. depth"))
+  tidy_df$ephys_prop = f
+  tidy_df$cell_class = 'Glutamatergic'
+  keep_df = bind_rows(keep_df, tidy_df)
+
+  formula = paste0('scale(', f, ') ~ 1 + (1|corresponding_AIT2.3.1_alias) + Microglia + (1|donor_id) + scale(depth_from_pia_um)')
+  print(formula)
+  tidy_df = tidy(lmer(formula, data = metadata_scala %>% filter(class == 'GABAergic')), REML = FALSE) %>%
+    filter(effect == "fixed") %>%
+    mutate(term = str_replace(term, "corresponding_AIT2.3.1_alias", "")) %>%
+    mutate(term = recode(term, `scale(Microglia)` = "Microglia", `scale(depth_from_pia_um)` = "Abs. depth"))
+  tidy_df$ephys_prop = f
+  tidy_df$cell_class = 'GABAergic'
+  keep_df = bind_rows(keep_df, tidy_df)
+}
+
+keep_df$ephys_prop = factor(keep_df$ephys_prop, 
+                                  levels = c("input_resistance","rheobase_i","v_baseline","sag","threshold_v", "trough_v", "apamp", "ahpamp", "width", "fi_fit_slope", "adapt"),
+                                  labels = c("Input resistance","Rheobase","RMP","Sag ratio","AP thresh", "AP trough", "AP amp", "AHP amp", "AP width", "FI slope", "Adaptation"))
+remove_ephys_props = c('AP amp', 'AHP amp')
+
+keep_df$cell_class = factor(keep_df$cell_class, levels = c('Glutamatergic', 'GABAergic'))
+
+scala_bar_graph_plot = keep_df %>% filter(term == 'Microglia', !ephys_prop %in% remove_ephys_props) %>% 
+  ggplot(aes(x = ephys_prop, y = estimate, fill = cell_class)) + 
+  geom_bar(stat = "identity", position = "dodge2") +
+  geom_errorbar(aes(x = ephys_prop, 
+                    y = estimate, ymin = estimate - 1.96 * std.error, 
+                    ymax = estimate +  1.96 * std.error), 
+                position = "dodge2") +
+  theme_classic() + 
+  scale_fill_manual(values = c('#9632B8FF', '#EEA236FF', "dark green", 'light green')) +
+  geom_hline(yintercept = 0) + 
+  ylab('Microglial assoc (Beta)') + 
+  theme(axis.text.x = element_text(angle = 60, hjust = 1, vjust = 1, size = 15), 
+        axis.title.x = element_blank(),
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 16)) 
+
+full_plot = plot_grid(scala_ephys_example_plots, scala_bar_graph_plot, nrow = 2, rel_heights = c(1.3, 1))
+full_plot
+
+ggsave(filename = "./output/scala_figure_4a_supplement.svg", device = "svg", width = 7, height = 10, units = "in", dpi = 500, limitsize = F)
+
+ggsave(filename = "./output/scala_figure_4a_supplement.png", device = "png", width = 7, height = 10, units = "in", dpi = 500, limitsize = F)
+
+
+```
+

@@ -372,6 +372,8 @@ plot_grid(human_univar_plots, mouse_univar_plot, mixed_model_plot,
 
 ggsave(filename = "./output/figure_2a.svg", device = "svg", width = 16, height = 17, units = "in", dpi = 500, limitsize = F)
 
+ggsave(filename = "./output/figure_2a.png", device = "png", width = 16, height = 17, units = "in", dpi = 500, limitsize = F)
+
 
 ```
 
