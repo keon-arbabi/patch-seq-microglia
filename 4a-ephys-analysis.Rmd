@@ -82,7 +82,9 @@ metadata_m$cluster_label = factor(metadata_m$cluster_label,
 
 ephys_m = read.csv(file = here("data","processed_ephys","mouse_ephys_features_gouwens.csv"))[,-1] %>% 
   mutate(new_ephys_ses_id = str_extract(ephys_session_id, pattern = "(\\d)+_icephys.nwb"), 
-         ephys_session_id = str_extract(new_ephys_ses_id, "(\\d)+") %>% as.numeric())
+         original_ephys_session_id = ephys_session_id,
+         ephys_session_id = str_extract(new_ephys_ses_id, "(\\d)+") %>% as.numeric() 
+         )
 # ephys_h = read.csv(url('https://raw.githubusercontent.com/AllenInstitute/patchseq_human_L23/master/data/human_mouse_ephys_all_0127.csv')) %>% 
   # rename(ephys_session_id = specimen_id)
 
@@ -140,8 +142,8 @@ metadata_h[metadata_h$ephys_session_id == 732091715, 'size'] = 5
 metadata_m = metadata_m[!is.na(metadata_m$Microglia),]
 metadata_m$color = 'black'
 metadata_m$size = 1
-# low microglia cell example: 732048771	SM-GE8YK_S028_E1-50	H18.03.314	ephys_session_id sample_id donor_id # sub-731978186_ses-732048771_icephys.nwb, #355 um deep
-# high microglia cell example: 732091715	SM-GE8YK_S031_E1-50	H18.03.314 ephys_session_id sample_id donor_id # sub-731978186_ses-732091715_icephys.nwb #331 um deep
+# low microglia cell example: 892441714	SM-GE8YK_S028_E1-50	H18.03.314	ephys_session_id sample_id donor_id # sub-731978186_ses-732048771_icephys.nwb, #355 um deep
+# high microglia cell example: 892424119	SM-GE8YK_S031_E1-50	H18.03.314 ephys_session_id sample_id donor_id # sub-731978186_ses-732091715_icephys.nwb #331 um deep
 # nwb datasets are on the scc here: /external/rprshnas01/netdata_kcni/stlab/Public/AIBS_patchseq_2020/human/ephys/000023/
 metadata_m[metadata_m$ephys_session_id == 892441714, 'color'] = '#357EBDFF'
 metadata_m[metadata_m$ephys_session_id == 892441714, 'size'] = 5
