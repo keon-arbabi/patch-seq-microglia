@@ -281,6 +281,11 @@ ggsave(filename = "./output/scala_figure_4a_supplement.svg", device = "svg", wid
 
 ggsave(filename = "./output/scala_figure_4a_supplement.png", device = "png", width = 7, height = 10, units = "in", dpi = 500, limitsize = F)
 
+# write a spreadsheet with the output of the stats modeling, including pvals and effect sizes
+effects_df_output = keep_df %>% filter(term == 'Microglia', !ephys_prop %in% remove_ephys_props) %>%
+  select(ephys_prop, cell_class, estimate:p.value) %>% tbl_df()
+write_csv(effects_df_output, file = './output/scala_ephys_assocs.csv')
+
 
 ```
 

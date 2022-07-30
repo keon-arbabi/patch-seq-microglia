@@ -303,6 +303,10 @@ ggsave(filename = "./output/figure_4a.svg", device = "svg", width = 7, height = 
 
 ggsave(filename = "./output/figure_4a.png", device = "png", width = 7, height = 10, units = "in", dpi = 500, limitsize = F)
 
+# write a spreadsheet with the output of the stats modeling, including pvals and effect sizes
+effects_df_output = keep_df %>% filter(term == 'Microglia', !ephys_prop %in% remove_ephys_props) %>%
+  select(ephys_prop, species, estimate:p.value) %>% tbl_df()
+write_csv(effects_df_output, file = './output/aibs_ephys_assocs.csv')
 ```
 
 ### figure out which cells to use as examples for plotting ephys features for
