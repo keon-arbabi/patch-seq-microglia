@@ -287,9 +287,15 @@ effects_df_output = keep_df %>% filter(term == 'Microglia', !ephys_prop %in% rem
   select(ephys_prop, species, estimate:p.value) %>% tbl_df()
 write_csv(effects_df_output, file = './output/aibs_ephys_assocs.csv')
 
-effects_df_output$signif = ' '
-effects_df_output$signif[effects_df_output$p.value < 0.05] = '*'
 
+effects_df_output$sig = F
+effects_df_output$sig[effects_df_output$p.value < 0.05] = T
+
+effects_df_output = effects_df_output %>% mutate(conf.low = estimate - std.error * 1.96, 
+                                                 conf.high = estimate + std.error * 1.96, 
+  y_asterisk_pos = case_when(sign(estimate) > 0 ~ conf.high + 0.1, 
+                             sign(estimate) < 0 ~ conf.low - 0.2, 
+                            TRUE ~ 0))
 
 bar_graph_plot = effects_df_output  %>% 
   ggplot(aes(x = ephys_prop, y = estimate, fill = species)) + 
@@ -299,16 +305,8 @@ bar_graph_plot = effects_df_output  %>%
                     ymax = estimate +  1.96 * std.error), 
                 position = "dodge2") +
   theme_classic() + 
-  geom_signif(stat = "identity", 
-              data = effects_df_output %>% filter(signif == '*'),
-              aes(x = ephys_prop, xend = ephys_prop, 
-                  y = estimate, yend = estimate, 
-                  annotation = signif), 
-              annotations = annotation
-  ) + 
-    # annotations = effects_df_output$p.value,
-    #           y_position = effects_df_output$estimate, xmin = effects_df_output$ephys_prop, xmax = effects_df_output$ephys_prop,
-    #           map_signif_level = T) + 
+  geom_text(aes(label = ifelse(sig, "*", ""), y = y_asterisk_pos, group = species), color = "black",
+            position = position_dodge(width = .9), size = 20 / .pt) + 
   scale_fill_manual(values = c('#9632B8FF', '#EEA236FF', "dark green", 'light green')) +
   geom_hline(yintercept = 0) + 
   ylab('Microglial assoc (Beta)') + 
