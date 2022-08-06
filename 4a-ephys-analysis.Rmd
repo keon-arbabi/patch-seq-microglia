@@ -142,8 +142,8 @@ metadata_h[metadata_h$ephys_session_id == 732091715, 'size'] = 5
 metadata_m = metadata_m[!is.na(metadata_m$Microglia),]
 metadata_m$color = 'black'
 metadata_m$size = 1
-# low microglia cell example: 892441714	SM-GE8YK_S028_E1-50	H18.03.314	ephys_session_id sample_id donor_id # sub-731978186_ses-732048771_icephys.nwb, #355 um deep
-# high microglia cell example: 892424119	SM-GE8YK_S031_E1-50	H18.03.314 ephys_session_id sample_id donor_id # sub-731978186_ses-732091715_icephys.nwb #331 um deep
+# low microglia cell example: 892441714 sub-885375443_ses-892441714_icephys.nwb
+# high microglia cell example: 892424119	sub-885375443_ses-892424119_icephys.nwb
 # nwb datasets are on the scc here: /external/rprshnas01/netdata_kcni/stlab/Public/AIBS_patchseq_2020/human/ephys/000023/
 metadata_m[metadata_m$ephys_session_id == 892441714, 'color'] = '#357EBDFF'
 metadata_m[metadata_m$ephys_session_id == 892441714, 'size'] = 5
@@ -222,7 +222,8 @@ metadata_m %>% group_by(corresponding_AIT2.3.1_alias) %>% summarize(corr_val_rmp
                                                                     corr_val_rin = cor(Microglia, input_resistance, use = 'pairwise.complete.obs'),
                                                                     corr_val_trough_v = cor(Microglia, trough_v, use = 'pairwise.complete.obs'), 
                                                                     corr_val_fi_slope = cor(Microglia, fi_fit_slope, use = 'pairwise.complete.obs'),
-                                                                    count = n()) %>% 
+                                                                    count = n(), 
+                                                                    micro_sd = sd(Microglia)) %>% 
   filter(count > 100) %>%
   arrange(-corr_val_rmp) %>% 
   as.data.frame()

@@ -92,7 +92,7 @@ h2 = metadata_h %>% ggplot(aes(x = depth_from_pia_um, y = Microglia)) +
   theme(axis.title.y = element_blank(),
         axis.text = element_text(size = 12),
         axis.title = element_text(size = 16)) +
-  stat_cor(method = "spearman", label.y = 1, size = 5)
+  stat_cor(method = "pearson", label.y = 1, size = 5)
 
 h3 = metadata_h %>% ggplot(aes(x = reorder(Iba1.bin, Iba1.Cortex), y = Microglia)) + 
   geom_boxplot(outlier.color = "NA", width = 0.6, lwd =  0.8, fill = "lightgrey") +
@@ -268,7 +268,7 @@ m3 = metadata_m %>% ggplot(aes(x = cell_soma_normalized_depth, y = Microglia)) +
   geom_smooth(method = "lm", se = FALSE, color = "black", lwd = 1.0) +
   labs(x = "Cell Soma Normalized\nDepth (N = 696)", y = "") +
   theme_classic() +
-  stat_cor(method = "spearman", label.y = 1, size = 5)
+  stat_cor(method = "pearson", label.y = 1, size = 5)
 
 mouse_univar_plot = plot_grid(m2, m1, nrow = 1, align = "h", rel_widths = c(2, 5))
 mouse_univar_plot

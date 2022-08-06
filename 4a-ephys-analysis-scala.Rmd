@@ -133,7 +133,7 @@ metadata_scala =  metadata_scala %>% filter(`Rheobase (pA)` > 0) %>%
     threshold_v = `AP threshold (mV)`,
     trough_v = `AP threshold (mV)` + `Afterhyperpolarization (mV)`,
     v_baseline = `Resting membrane potential (mV)`,
-    sag = 1 - `Sag ratio`,
+    sag = `Sag ratio` - 1,
     adapt = `ISI adaptation index`
                         
 )
@@ -147,7 +147,7 @@ model_features_list = c('input_resistance', 'rheobase_i', 'width', 'apamp', 'ahp
 ```{r}
 
 mouse_scala_plot_rin_exc = metadata_scala %>% filter(10^input_resistance > 30, 10^input_resistance < 500) %>%  
-  filter(subclass == 'L2.3 IT') %>%
+  filter(`RNA family` == 'IT') %>%
   ggplot(aes(x = Microglia, y = 10^input_resistance)) + 
   geom_smooth(method = "lm", se = F) +
   geom_point(shape = 16) + 
@@ -161,21 +161,37 @@ mouse_scala_plot_rin_exc = metadata_scala %>% filter(10^input_resistance > 30, 1
         axis.title = element_text(size = 16))  +
   stat_cor(method = "pearson", size = 4, label.x = 0, label.y = 2.5)
 
-mouse_scala_plot_apwidth_exc = metadata_scala %>% 
-  filter(subclass == 'L2.3 IT') %>% 
+mouse_scala_plot_sag_exc = metadata_scala %>% 
+  filter(`RNA family` == 'ET') %>%
   # filter(10^width / 1000 > 1) %>% 
-  ggplot(aes(x = Microglia, y = 10^width / 1000)) + 
+  ggplot(aes(x = Microglia, y = sag)) + 
   geom_smooth(method = "lm", se = F) +
   geom_point(shape = 16) + 
   scale_color_identity() + 
   scale_size_identity() + 
   # scale_y_log10() + 
-  ylab('Spike width (ms)') + 
+  ylab('Sag ratio') + 
   xlab('Microglia Score') + 
   theme_classic() + 
   theme(axis.text = element_text(size = 12),
         axis.title = element_text(size = 16))  +
-  stat_cor(method = "pearson", size = 4, label.y = 3) 
+  stat_cor(method = "pearson", size = 4, label.y = 0.8) 
+
+mouse_scala_plot_apwidth_exc = metadata_scala %>% 
+  filter(`RNA family` == 'ET') %>% 
+  # filter(10^width / 1000 > 1) %>% 
+  ggplot(aes(x = Microglia, y = sag)) + 
+  geom_smooth(method = "lm", se = F) +
+  geom_point(shape = 16) + 
+  scale_color_identity() + 
+  scale_size_identity() + 
+  # scale_y_log10() + 
+  # ylab('Spike width (ms)') + 
+  xlab('Microglia Score') + 
+  theme_classic() + 
+  theme(axis.text = element_text(size = 12),
+        axis.title = element_text(size = 16))  +
+  stat_cor(method = "pearson", size = 4) 
 
 mouse_scala_plot_rin_inh = metadata_scala %>% filter(10^input_resistance > 30, 10^input_resistance < 500) %>%  
   filter(subclass == 'Pvalb') %>% 
@@ -207,9 +223,21 @@ mouse_scala_plot_threshold_v_inh = metadata_scala %>%
         axis.title = element_text(size = 16))  +
   stat_cor(method = "pearson", size = 4) 
 
-scala_ephys_example_plots = plot_grid(mouse_scala_plot_rin_exc, mouse_scala_plot_apwidth_exc, 
-                                      mouse_scala_plot_rin_inh, mouse_scala_plot_threshold_v_inh, nrow = 2)
+scala_ephys_example_plots = plot_grid(mouse_scala_plot_rin_exc, mouse_scala_plot_sag_exc, 
+                                      mouse_scala_plot_rin_inh, mouse_scala_plot_threshold_v_inh, nrow = 2, 
+                                      labels = c('A', 'B', 'C', 'D'))
 scala_ephys_example_plots
+
+# generate some example correlations to figure out which relationsihps to highlight
+metadata_scala %>% group_by(`RNA family`) %>% summarize(corr_val_rmp = cor(Microglia, v_baseline, use = 'pairwise.complete.obs'),
+                                                                    corr_val_rin = cor(Microglia, input_resistance, use = 'pairwise.complete.obs'),
+                                                                    corr_val_trough_v = cor(Microglia, trough_v, use = 'pairwise.complete.obs'), 
+                                                                    corr_val_sag = cor(Microglia, sag, use = 'pairwise.complete.obs'),
+                                                                    count = n(), 
+                                                                    micro_sd = sd(Microglia)) %>% 
+  filter(count > 30) %>%
+  arrange(-corr_val_rmp) %>% 
+  as.data.frame()
 
 ```
 ### do stats modelling for ephys terms
@@ -292,12 +320,13 @@ scala_bar_graph_plot = effects_df_output  %>%
         axis.text = element_text(size = 12),
         axis.title = element_text(size = 16)) 
 
-full_plot = plot_grid(scala_ephys_example_plots, scala_bar_graph_plot, nrow = 2, rel_heights = c(1.3, 1))
+full_plot = plot_grid(scala_ephys_example_plots, scala_bar_graph_plot, nrow = 2, rel_heights = c(1.3, 1), 
+                      labels = c('', 'E'))
 full_plot
 
-ggsave(filename = "./output/scala_figure_4a_supplement.svg", device = "svg", width = 7, height = 10, units = "in", dpi = 500, limitsize = F)
+ggsave(filename = "./output/scala_figure_4a_supplement.svg", device = "svg", width = 7, height = 12, units = "in", dpi = 500, limitsize = F)
 
-ggsave(filename = "./output/scala_figure_4a_supplement.png", device = "png", width = 7, height = 10, units = "in", dpi = 500, limitsize = F)
+ggsave(filename = "./output/scala_figure_4a_supplement.png", device = "png", width = 7, height = 12, units = "in", dpi = 500, limitsize = F)
 
 
 
