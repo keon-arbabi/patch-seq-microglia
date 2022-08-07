@@ -31,6 +31,7 @@ suppressPackageStartupMessages({
   library(performance)
   library(broom.mixed)
   library(dotwhisker)
+  library(openxlsx)
 })
 ```
 
@@ -337,4 +338,9 @@ ggsave(filename = "./output/scala_figure_4a_supplement.png", device = "png", wid
 
 
 ```
+### write out ephys effects data frames to an excel file
+```{r}
 
+dataset_names <- list('Allen Institute' = allen_institute_ephys_effects, 'Scala' = scala_ephys_effects)
+write.xlsx(dataset_names, file = './output/Supplementary Table 3.xlsx')
+```
