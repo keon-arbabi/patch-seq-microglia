@@ -292,6 +292,8 @@ effects_df_output = keep_df %>% filter(term == 'Microglia', !ephys_prop %in% rem
 write_csv(effects_df_output, file = './output/scala_ephys_assocs.csv')
 
 
+
+
 effects_df_output$sig = F
 effects_df_output$sig[effects_df_output$p.value < 0.05] = T
 
@@ -319,6 +321,9 @@ scala_bar_graph_plot = effects_df_output  %>%
         axis.title.x = element_blank(),
         axis.text = element_text(size = 12),
         axis.title = element_text(size = 16)) 
+
+scala_ephys_effects = effects_df_output
+
 
 full_plot = plot_grid(scala_ephys_example_plots, scala_bar_graph_plot, nrow = 2, rel_heights = c(1.3, 1), 
                       labels = c('', 'E'))
