@@ -336,7 +336,6 @@ res$variable = factor(res$variable,
 res$group = "mouse"
 res_m = res
 
-
 ```
 
 # generate combined mixed model plot
@@ -362,6 +361,7 @@ mixed_model_plot = res %>%
         axis.text.y = element_text(size = 16),
         axis.title = element_text(size = 16))
 mixed_model_plot
+
 ```
 
 # combined plot
@@ -370,13 +370,10 @@ mixed_model_plot
 plot_grid(human_univar_plots, mouse_univar_plot, mixed_model_plot,
           nrow = 3, ncol = 1, align = "none", rel_heights = c(1,1,0.8), scale = 0.9)
 
-ggsave(filename = "./output/figure_2a.svg", device = "svg", width = 16, height = 17, units = "in", dpi = 500, limitsize = F)
-
-ggsave(filename = "./output/figure_2a.png", device = "png", width = 16, height = 17, units = "in", dpi = 500, limitsize = F)
-
+#ggsave(filename = "./output/figure_2a.svg", device = "svg", width = 16, height = 17, units = "in", dpi = 500, limitsize = F)
+#ggsave(filename = "./output/figure_2a.png", device = "png", width = 16, height = 17, units = "in", dpi = 500, limitsize = F)
 
 ```
-
 
 
 # appendix

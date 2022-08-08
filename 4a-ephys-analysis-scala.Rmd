@@ -3,14 +3,15 @@ title: "4a-ephys-analysis-scala"
 author: "Shreejoy Tripathy"
 date: "7/30/2022"
 output: html_document
+editor_options: 
+  chunk_output_type: console
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-
-# load libraries 
+### load libraries 
 ```{r}
 suppressPackageStartupMessages({
   library(tidyverse)
@@ -37,12 +38,7 @@ suppressPackageStartupMessages({
 
 ### read in scala meta and ephys data
 ```{r}
-
-
 scala_qc_metrics = read_csv("./output/scala_qcMetrics.csv")
-
-# which data, "human" or "mouse"
-spcs = "mouse"  
 
 # read scala metadata from url from githib repo - https://github.com/berenslab/mini-atlas
 scala_meta_url = 'https://raw.githubusercontent.com/berenslab/mini-atlas/master/data/m1_patchseq_meta_data.csv'
@@ -57,9 +53,8 @@ metadata_scala = left_join(meta, scala_qc_metrics, by = c('Cell'= 'sample_id'))
 metadata_scala = left_join(metadata_scala, scala_ephys, by = c('Cell' = "cell id"))
 ```
 
-# munge scala column names
+### munge scala column names
 ```{r}
-
 
 metadata_scala = metadata_scala %>% 
   separate(`ALM/VISp top-3`, into = c('top_cluster_string'), remove = F, sep = ' ,') %>% 
@@ -118,9 +113,6 @@ metadata_scala$cluster_label = factor(metadata_scala$cluster_label,
                                   )
 ```
 
-
-
-
 ### transform ephys properties as needed
 ```{r}
 
@@ -138,7 +130,6 @@ metadata_scala =  metadata_scala %>% filter(`Rheobase (pA)` > 0) %>%
     adapt = `ISI adaptation index`
                         
 )
-
 model_features_list = c('input_resistance', 'rheobase_i', 'width', 'apamp', 'ahpamp', 'threshold_v', 'trough_v', 'v_baseline', 'sag')
 
 ```
@@ -230,12 +221,14 @@ scala_ephys_example_plots = plot_grid(mouse_scala_plot_rin_exc, mouse_scala_plot
 scala_ephys_example_plots
 
 # generate some example correlations to figure out which relationsihps to highlight
-metadata_scala %>% group_by(`RNA family`) %>% summarize(corr_val_rmp = cor(Microglia, v_baseline, use = 'pairwise.complete.obs'),
-                                                                    corr_val_rin = cor(Microglia, input_resistance, use = 'pairwise.complete.obs'),
-                                                                    corr_val_trough_v = cor(Microglia, trough_v, use = 'pairwise.complete.obs'), 
-                                                                    corr_val_sag = cor(Microglia, sag, use = 'pairwise.complete.obs'),
-                                                                    count = n(), 
-                                                                    micro_sd = sd(Microglia)) %>% 
+metadata_scala %>% 
+  group_by(`RNA family`) %>% 
+  summarize(corr_val_rmp = cor(Microglia, v_baseline, use = 'pairwise.complete.obs'),
+            corr_val_rin = cor(Microglia, input_resistance, use = 'pairwise.complete.obs'),
+            corr_val_trough_v = cor(Microglia, trough_v, use = 'pairwise.complete.obs'), 
+            corr_val_sag = cor(Microglia, sag, use = 'pairwise.complete.obs'),
+            count = n(), 
+            micro_sd = sd(Microglia)) %>% 
   filter(count > 30) %>%
   arrange(-corr_val_rmp) %>% 
   as.data.frame()
@@ -257,7 +250,6 @@ plot_lst = list()
 keep_df = data.frame()
 for(f in model_features_list){
   # prepare data 
-
   
   formula = paste0('scale(', f, ') ~ 1 + (1|corresponding_AIT2.3.1_alias) + Microglia + (1|donor_id) + scale(depth_from_pia_um)')
   print(formula)
@@ -292,18 +284,15 @@ effects_df_output = keep_df %>% filter(term == 'Microglia', !ephys_prop %in% rem
   select(ephys_prop, cell_class, estimate:p.value) %>% tbl_df()
 write_csv(effects_df_output, file = './output/scala_ephys_assocs.csv')
 
-
-
-
 effects_df_output$sig = F
 effects_df_output$sig[effects_df_output$p.value < 0.05] = T
 
-effects_df_output = effects_df_output %>% mutate(conf.low = estimate - std.error * 1.96, 
-                                                 conf.high = estimate + std.error * 1.96, 
-  y_asterisk_pos = case_when(sign(estimate) > 0 ~ conf.high + 0.1, 
-                             sign(estimate) < 0 ~ conf.low - 0.2, 
-                            TRUE ~ 0))
-
+effects_df_output = effects_df_output %>% 
+  mutate(conf.low = estimate - std.error * 1.96,
+         conf.high = estimate + std.error * 1.96, 
+         y_asterisk_pos = case_when(sign(estimate) > 0 ~ conf.high + 0.1, 
+                                    sign(estimate) < 0 ~ conf.low - 0.2, 
+                                    TRUE ~ 0))
 
 scala_bar_graph_plot = effects_df_output  %>% 
   ggplot(aes(x = ephys_prop, y = estimate, fill = cell_class)) + 
@@ -326,21 +315,18 @@ scala_bar_graph_plot = effects_df_output  %>%
 scala_ephys_effects = effects_df_output
 
 
-full_plot = plot_grid(scala_ephys_example_plots, scala_bar_graph_plot, nrow = 2, rel_heights = c(1.3, 1), 
-                      labels = c('', 'E'))
+full_plot = plot_grid(scala_ephys_example_plots, scala_bar_graph_plot, nrow = 2, rel_heights = c(1.3, 1), labels = c('', 'E'), label_size = 20)
 full_plot
 
-ggsave(filename = "./output/scala_figure_4a_supplement.svg", device = "svg", width = 7, height = 12, units = "in", dpi = 500, limitsize = F)
-
-ggsave(filename = "./output/scala_figure_4a_supplement.png", device = "png", width = 7, height = 12, units = "in", dpi = 500, limitsize = F)
-
-
-
+ggsave(filename = "./output/supp_figure_3.svg", device = "svg", width = 8.5, height = 12, units = "in", dpi = 500, limitsize = F)
+ggsave(filename = "./output/supp_figure_3.png", device = "png", width = 8.5, height = 12, units = "in", dpi = 500, limitsize = F)
 
 ```
+
 ### write out ephys effects data frames to an excel file
 ```{r}
 
-dataset_names <- list('Allen Institute' = allen_institute_ephys_effects, 'Scala' = scala_ephys_effects)
-write.xlsx(dataset_names, file = './output/Supplementary Table 3.xlsx')
+dataset_names = list('Allen Institute' = allen_institute_ephys_effects, 'Scala' = scala_ephys_effects)
+#write.xlsx(dataset_names, file = './output/Supplementary Table 3.xlsx')
+
 ```

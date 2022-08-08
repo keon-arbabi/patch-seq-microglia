@@ -3,6 +3,8 @@ title: "2-variable-analysis-scala"
 author: "Shreejoy Tripathy"
 date: "7/25/2022"
 output: html_document
+editor_options: 
+  chunk_output_type: console
 ---
 
 ```{r setup, include=FALSE}
@@ -40,13 +42,9 @@ suppressPackageStartupMessages({
 
 scala_qc_metrics = read_csv("./output/scala_qcMetrics.csv")
 
-# which data, "human" or "mouse"
-spcs = "mouse"  
-
 # read scala metadata from url from githib repo - https://github.com/berenslab/mini-atlas
 scala_meta_url = 'https://raw.githubusercontent.com/berenslab/mini-atlas/master/data/m1_patchseq_meta_data.csv'
 meta = read_tsv(url(scala_meta_url)) 
-
 metadata_scala = left_join(meta, scala_qc_metrics, by = c('Cell'= 'sample_id'))
 
 ```
@@ -118,7 +116,6 @@ metadata_scala = metadata_scala %>% group_by(corresponding_AIT2.3.1_alias) %>% m
 
 metadata_scala$corresponding_AIT2.3.1_alias = fct_reorder(metadata_scala$corresponding_AIT2.3.1_alias, metadata_scala$median_cluster_label_Microglia)
 
-
 # cell soma depth from pia
 cell_soma_depth_plot = metadata_scala %>% ggplot(aes(x = depth_from_pia_um, y = Microglia)) + 
   geom_point(size = 1.5, shape = 16, color = "black", alpha = 0.5) + 
@@ -163,7 +160,7 @@ hold_time_plot = metadata_scala %>%
   facet_wrap(~class)
 
 scala_univar_plots = plot_grid(cell_soma_depth_plot, nrow = 1)
-
+scala_univar_plots
 
 cell_types_microglia_plot = metadata_scala %>%
   ggplot(aes(x = corresponding_AIT2.3.1_alias, y = Microglia)) + 
@@ -177,9 +174,10 @@ cell_types_microglia_plot = metadata_scala %>%
         legend.position = "none", 
         axis.text = element_text(size = 12),
         axis.title = element_text(size = 16), 
-        strip.text = element_text(size = 16)
-) + facet_grid(~class, space = "free_x", scales = "free_x") +
-  stat_compare_means(method = "kruskal.test", label.y = 1, label.x = 1.5, size = 4) 
+        strip.text = element_text(size = 16)) + 
+  facet_grid(~class, space = "free_x", scales = "free_x") 
+  #stat_compare_means(method = "kruskal.test", label.y = 1, label.x = 1.5, size = 4) 
+cell_types_microglia_plot
 
 ```
 
@@ -198,7 +196,6 @@ joined_type_medians = inner_join(metadata_scala %>% select(corresponding_AIT2.3.
              distinct(corresponding_AIT2.3.1_alias, .keep_all = T), 
            by = 'corresponding_AIT2.3.1_alias')
 
-
 corresp_plot = joined_type_medians %>% 
   ggplot(aes(x = median_cluster_label_Microglia_gouwens, 
              y = median_cluster_label_Microglia_scala, 
@@ -212,8 +209,7 @@ corresp_plot = joined_type_medians %>%
   theme(legend.position = "none", 
         axis.text = element_text(size = 12),
         axis.title = element_text(size = 16))
-
-
+corresp_plot
 
 ```
 
@@ -247,7 +243,6 @@ fit_null = lmer(form_null, data = metadata_scala_filt, REML = FALSE)
 # partial model testing
 res = lapply(c('biological_sex', 'scale(age)', 'scale(depth_from_pia_um)', 'corresponding_AIT2.3.1_alias'
                ), function(V){
-  
   form2 = gsub(V, "1", form_full, fixed = TRUE)
   form2 = as.formula(paste(form2[2], '~', form2[3]))
   
@@ -264,8 +259,6 @@ res = lapply(c('biological_sex', 'scale(age)', 'scale(depth_from_pia_um)', 'corr
                     )
 })
 
-
-
 res = do.call(rbind, res)
 res = rbind(res, c("donor_id", rep(random_rsq, ncol(res)-1)))
 # res$variable = factor(res$variable,
@@ -278,12 +271,9 @@ res$variable = factor(res$variable,
                                  "biological_sex", "scale(hold_time)", "scale(norm_cell_num)"),
                       labels = c("Donor","T-type","Pial depth","Age","Biol. sex", "Rec. Time", "Cell Num"))
 
-
 res$group = class_name
 return(res)
 }) %>% bind_rows()
-
-
 
 scala_mixed_model_plot = scala_stats_results %>%
   mutate(variable = reorder_within(variable, fm_tm, group)) %>%
@@ -306,12 +296,12 @@ scala_mixed_model_plot
 
 ## create final supplementary figure
 ```{r}
-bottom_row_plot = plot_grid(corresp_plot, scala_mixed_model_plot, nrow = 1, labels = c('C', 'D'))
+bottom_row_plot = plot_grid(corresp_plot, scala_mixed_model_plot, nrow = 1, labels = c('C', 'D'), label_size = 20)
+scala_fig_2_supplement = plot_grid(scala_univar_plots, cell_types_microglia_plot, bottom_row_plot, nrow = 3, rel_heights = c(1.25, 1.5, 1.5), labels = c('A', 'B', ''), label_size = 20)
+scala_fig_2_supplement
+ggsave(filename = "./output/supp_figure_2.png", device = "png", width = 8.5, height = 12, units = "in", dpi = 500, limitsize = F)
+ggsave(filename = "./output/supp_figure_2.svg", device = "svg", width = 8.5, height = 12, units = "in", dpi = 500, limitsize = F)
 
-
-scala_fig_2_supplement = plot_grid(scala_univar_plots, cell_types_microglia_plot, bottom_row_plot, nrow = 3, rel_heights = c(1.25, 1.5, 1.5), labels = c('A', 'B', ''))
-
-ggsave(filename = "./output/scala_fig_2_supplement.png", device = "png", width = 10, height = 12, units = "in", dpi = 500, limitsize = F)
-
-ggsave(filename = "./output/scala_fig_2_supplement.svg", device = "svg", width = 10, height = 12, units = "in", dpi = 500, limitsize = F)
 ```
+
+
