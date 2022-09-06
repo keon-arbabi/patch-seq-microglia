@@ -152,7 +152,6 @@ plot_enrichments_2 = function(res, title, rlimit){
 
 # load data
 ```{r load_data}
-
 # patch-seq human
 metadata_h = fread(file = here("data","patchseq","20200625_patchseq_metadata_human.csv"), data.table = FALSE)
 matrix_h = fread(file = here("data","patchseq","20200512_Human_PatchSeq_Release_count.csv"), data.table = FALSE) %>%
@@ -202,14 +201,27 @@ rownames(metadata_m_ref) = metadata_m_ref$sample_name
 ```
 
 ```{r}
+matrix_h %>%
+  edgeR::cpm(., log = TRUE, prior.count = 2) %>%
+  t() %>% as.data.frame() %>%
+  rownames_to_column(var = "sample_id") %>%
+  dplyr::select("sample_id", "TNF") %>%
+  left_join(., metadata_h, by = "sample_id") %>%
+  ggplot(., aes(x = TNF, y = Microglia)) +
+  geom_point() + 
+  geom_smooth(method = "lm", se = FALSE) +
+  stat_cor(method = "pearson", size = 4) +
+  theme_classic()
+
+```
+
+```{r}
 # visualize expression distribution for a random gene across all samples 
 tmp = edgeR::cpm(matrix_h_ref, prior.count = 2, log = TRUE)
 tmp = tmp[sample(1:ncol(tmp),1),]
 df = data.frame(tmp)
-
 ggplot(df, aes(x = tmp)) +
-  geom_histogram(aes(y = ..density..),
-               color = 1, fill = "white") +
+  geom_histogram(aes(y = ..density..), color = 1, fill = "white") +
   geom_density() +
   labs(x = "log cpm")
 
