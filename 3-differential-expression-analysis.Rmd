@@ -398,9 +398,9 @@ cols = c("UP" = "#9632B8FF", "DIFF" = "#D28212", "DOWN" = "#357EBDFF", "NO" = "l
 
 human_vol_p = ggplot(de_h, aes(x = avg_log2FC, y = -log10(p_val), color = color, label = label)) +
   geom_point(shape = 16, alpha = 1) + 
-  geom_text_repel(max.overlaps = 15, show.legend = F, box.padding = 0.25, size = 4) +
+  geom_text_repel(max.overlaps = 18, show.legend = F, box.padding = 0.25, size = 4) +
   scale_color_manual(values = cols, labels = c("Up", "Up (Patch-seq only)", "Down")) +
-  scale_x_continuous(limits = c(-3.0, 7.5)) +
+  scale_x_continuous(limits = c(-3.0, 10), breaks = seq(-2.5,10,2.5)) +
   labs(x = "", y = "-Log10 P-Value", color = "Differential Expression") +
   guides(color = guide_legend(override.aes = list(size = 4))) +
   theme_classic() + 
@@ -410,7 +410,7 @@ human_vol_p = ggplot(de_h, aes(x = avg_log2FC, y = -log10(p_val), color = color,
         legend.text.align = 0,
         legend.title = element_blank(),
         legend.title.align = 1,
-        axis.text = element_text(size = 12),
+        axis.text = element_text(size = 14),
         axis.title = element_text(size = 16))
 human_vol_p
 
@@ -671,7 +671,7 @@ if(file.exists("./output/de_m_ref.csv") == FALSE){
 ```{r}
 
 de_m = read.csv(file = "./output/de_m.csv")[,-1]
-de_m = de_m %>% filter(!p_val == 0.000000e+00)
+de_m$p_val = ifelse(de_m$p_val == 0.000000e+00, sample(seq(1,9,0.01)*1.0e-299, sum(de_m$p_val == 0.000000e+00, na.rm = T)), de_m$p_val) # deal with zero p-values for plotting 
 de_m_ref = read.csv(file = "./output/de_m_ref.csv")[,-1]
 
 de_m_up = de_m %>% filter(avg_log2FC > 2.5, p_val < 0.01) %>% pull(gene)
@@ -682,23 +682,27 @@ de_m_ref_down = de_m_ref %>% filter(avg_log2FC < -2.5, p_val < 0.01) %>% pull(ge
 de_m_up_diff = de_m %>% filter(gene %in% setdiff(de_m_up, de_m_ref_up)) %>% pull(gene)
 de_m_down_diff = de_m %>% filter(gene %in% setdiff(de_m_down, de_m_ref_down)) %>% pull(gene)
 
+genes_select = c("Tnf","Il1b","Il6","Ccl2")
+
 de_m = de_m %>% 
   mutate(color = case_when(gene %in% de_m_up ~ "UP", 
                            gene %in% de_m_down ~ "DOWN", TRUE ~ "NO")) %>%
   mutate(color = case_when(gene %in% c(de_m_up_diff) ~ "DIFF", TRUE ~ as.character(color))) %>%
   #mutate(label = case_when(gene %in% c(de_m_up, de_m_down) ~ gene)) %>%
-  mutate(label_pat = case_when(color == "DIFF" ~ gene)) %>%
-  mutate(label_ref = case_when(color == "UP" ~ gene))
+  mutate(label_pat = case_when(color == "DIFF" & !gene %in% genes_select ~ gene)) %>%
+  mutate(label_ref = case_when(color == "UP" & !gene %in% genes_select ~ gene)) %>%
+  mutate(label_select = case_when(gene %in% genes_select ~ gene))
 
 cols = c("UP" = "#9632B8FF", "DIFF" = "#D28212", "DOWN" = "#357EBDFF", "NO" = "lightgrey")
 
 mouse_vol_p = ggplot(de_m, aes(x = avg_log2FC, y = -log10(p_val), color = color)) +
   geom_point(shape = 16, alpha = 1) + 
-  geom_text_repel(aes(label = label_pat), max.overlaps = 8, show.legend = F, box.padding = 0.25, size = 4.5) +
-  geom_text_repel(aes(label = label_ref), max.overlaps = 8, show.legend = F, box.padding = 0.25, size = 4.5) +
+  geom_text_repel(aes(label = label_pat), max.overlaps = 18, show.legend = F, box.padding = 0.25, size = 4.5) +
+  geom_text_repel(aes(label = label_ref), max.overlaps = 15, show.legend = F, box.padding = 0.25, size = 4.5) +
+  geom_text_repel(aes(label = label_select), max.overlaps = 100, show.legend = F, size = 4.5) +
   scale_color_manual(values = cols, labels = c("Up", "Up (Patch-seq only)", "Down")) +
-  scale_x_continuous(limits = c(-3.0, 7.5)) +
-  scale_y_continuous(limits = c(0, 290)) +
+  scale_x_continuous(limits = c(-3.0, 10.0), breaks = seq(-2.5,10,2.5)) +
+  scale_y_continuous(limits = c(0, 320)) +
   labs(x = "Average Log2 Fold-Change", y = "-Log10 P-Value", color = "Differential Expression") +
   guides(color = guide_legend(override.aes = list(size = 4))) +
   theme_classic() + 
@@ -708,7 +712,7 @@ mouse_vol_p = ggplot(de_m, aes(x = avg_log2FC, y = -log10(p_val), color = color)
         legend.text.align = 0,
         legend.title = element_blank(),
         legend.title.align = 1,
-        axis.text = element_text(size = 12),
+        axis.text = element_text(size = 14),
         axis.title = element_text(size = 16))
 mouse_vol_p
 
@@ -880,7 +884,7 @@ plot_enrichments_1(plot_res)
 
 plot_grid(human_vol_p, mouse_vol_p,
           nrow = 2, ncol = 1, align = "none", axis = "tblr", rel_heights = c(1,1))
-#ggsave(filename = "./output/figure_3a.svg", device = "svg", width = 9, height = 11, units = "in", dpi = 500, limitsize = F)
+ggsave(filename = "./output/figure_3a.svg", device = "svg", width = 9, height = 11, units = "in", dpi = 500, limitsize = F)
 
 ggarrange(human_friedman_p, NULL, human_olah_p, NULL, human_dam_p,
           mouse_friedman_p, NULL, mouse_olah_p, NULL, mouse_dam_p,
