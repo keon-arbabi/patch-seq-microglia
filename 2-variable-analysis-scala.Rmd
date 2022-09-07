@@ -190,9 +190,10 @@ metadata_scala = metadata_scala %>% group_by(corresponding_AIT2.3.1_alias) %>%
 metadata_m = metadata_m %>% group_by(corresponding_AIT2.3.1_alias) %>% 
   mutate(median_cluster_label_Microglia_gouwens = median(Microglia), cell_count = n()) %>% ungroup()
 
-joined_type_medians = inner_join(metadata_scala %>% select(corresponding_AIT2.3.1_alias, median_cluster_label_Microglia_scala) %>% distinct(corresponding_AIT2.3.1_alias, .keep_all = T), 
+joined_type_medians = inner_join(metadata_scala %>% dplyr::select(corresponding_AIT2.3.1_alias, median_cluster_label_Microglia_scala) %>% distinct(corresponding_AIT2.3.1_alias, .keep_all = T), 
            metadata_m %>% 
-             select(corresponding_AIT2.3.1_alias, median_cluster_label_Microglia_gouwens) %>% 
+             as.data.frame() %>%
+             dplyr::select(corresponding_AIT2.3.1_alias, median_cluster_label_Microglia_gouwens) %>% 
              distinct(corresponding_AIT2.3.1_alias, .keep_all = T), 
            by = 'corresponding_AIT2.3.1_alias')
 
@@ -299,8 +300,8 @@ scala_mixed_model_plot
 bottom_row_plot = plot_grid(corresp_plot, scala_mixed_model_plot, nrow = 1, labels = c('C', 'D'), label_size = 20)
 scala_fig_2_supplement = plot_grid(scala_univar_plots, cell_types_microglia_plot, bottom_row_plot, nrow = 3, rel_heights = c(1.25, 1.5, 1.5), labels = c('A', 'B', ''), label_size = 20)
 scala_fig_2_supplement
-ggsave(filename = "./output/supp_figure_2.png", device = "png", width = 8.5, height = 12, units = "in", dpi = 500, limitsize = F)
-ggsave(filename = "./output/supp_figure_2.svg", device = "svg", width = 8.5, height = 12, units = "in", dpi = 500, limitsize = F)
+ggsave(filename = "./output/supp_figure_2.png", device = "png", width = 8.5, height = 12, units = "in", dpi = 750, limitsize = F)
+ggsave(filename = "./output/supp_figure_2.svg", device = "svg", width = 8.5, height = 12, units = "in", dpi = 750, limitsize = F)
 
 ```
 
