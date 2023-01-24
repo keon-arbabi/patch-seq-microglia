@@ -140,12 +140,14 @@ cell_num_plot = metadata_scala %>% filter(cell_count_per_donor > 4) %>%
   ggplot(aes(x = norm_cell_num, y = Microglia)) + 
   geom_smooth(method = "lm", se = FALSE, color = "black", lwd = 1.0) +
   geom_jitter(size = 1.5, shape = 16, color = "black", width = 0.1, alpha = 0.5) + 
-  xlab('Recorded cell number') + ylab('') +
+  labs(x = 'Recorded cell number', y = "Microglia score") +
   stat_cor(method = "pearson", label.y = 1, size = 5) +
   theme_classic()  +
   theme(legend.position = "none", 
-      axis.text = element_text(size = 12),
-      axis.title = element_text(size = 16)) +
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 16), 
+        strip.text = element_text(size = 16)
+  ) + 
   facet_wrap(~class)
 
 hold_time_plot = metadata_scala %>% 
@@ -162,7 +164,7 @@ hold_time_plot = metadata_scala %>%
       axis.title = element_text(size = 16)) +
   facet_wrap(~class)
 
-scala_univar_plots = plot_grid(cell_soma_depth_plot, nrow = 1)
+scala_univar_plots = plot_grid(cell_soma_depth_plot, cell_num_plot, nrow = 2, labels = c('A', 'B'))
 
 
 cell_types_microglia_plot = metadata_scala %>%
@@ -225,7 +227,7 @@ scala_stats_results = lapply(c('GABAergic', 'Glutamatergic'), function(class_nam
   #dplyr::select(-c("ethnicity","neuron_reconstruction_type","GFAP.ctx.ABC")) %>%
   #mutate(age = as.numeric(gsub(" yrs","",age))) %>% na_if("") %>% na.omit()
 
-continous_vars = c("Microglia","age","depth_from_pia_um")
+continous_vars = c("Microglia","age","depth_from_pia_um", "cell_num", "hold_time")
 categorical_vars = c("biological_sex","corresponding_AIT2.3.1_alias","genotype", "donor_id")
 
 metadata_scala_filt[,categorical_vars] = lapply(metadata_scala_filt[,categorical_vars], factor)
@@ -233,7 +235,9 @@ metadata_scala_filt[,categorical_vars] = lapply(metadata_scala_filt[,categorical
 #ggpairs(metadata_scala_filt[c(continous_vars,categorical_vars)], cardinality_threshold = 30)
 
 # full model
-form_full = Microglia ~ biological_sex + scale(age) + scale(depth_from_pia_um) + corresponding_AIT2.3.1_alias + (1|donor_id)
+form_full = Microglia ~ biological_sex + scale(age) + scale(depth_from_pia_um) + 
+  scale(cell_num) + scale(hold_time) + 
+  corresponding_AIT2.3.1_alias + (1|donor_id)
 fit_full = lmer(form_full, data = metadata_scala_filt, REML = FALSE)
 random_rsq = r.squaredGLMM(fit_full)[2] - r.squaredGLMM(fit_full)[1]
 
@@ -245,7 +249,9 @@ form_null = Microglia ~ 1 + (1|donor_id)
 fit_null = lmer(form_null, data = metadata_scala_filt, REML = FALSE)
 
 # partial model testing
-res = lapply(c('biological_sex', 'scale(age)', 'scale(depth_from_pia_um)', 'corresponding_AIT2.3.1_alias'
+res = lapply(c('biological_sex', 'scale(age)', 'scale(depth_from_pia_um)', 
+               'scale(cell_num)' , 'scale(hold_time)',
+               'corresponding_AIT2.3.1_alias'
                ), function(V){
   
   form2 = gsub(V, "1", form_full, fixed = TRUE)
@@ -275,7 +281,7 @@ res = rbind(res, c("donor_id", rep(random_rsq, ncol(res)-1)))
 res[,2:7] = sapply(res[, 2:7], as.numeric)
 res$variable = factor(res$variable,
                       levels = c("donor_id","corresponding_AIT2.3.1_alias","scale(depth_from_pia_um)","scale(age)",
-                                 "biological_sex", "scale(hold_time)", "scale(norm_cell_num)"),
+                                 "biological_sex", "scale(hold_time)", "scale(cell_num)"),
                       labels = c("Donor","T-type","Pial depth","Age","Biol. sex", "Rec. Time", "Cell Num"))
 
 
@@ -306,12 +312,12 @@ scala_mixed_model_plot
 
 ## create final supplementary figure
 ```{r}
-bottom_row_plot = plot_grid(corresp_plot, scala_mixed_model_plot, nrow = 1, labels = c('C', 'D'))
+bottom_row_plot = plot_grid(corresp_plot, scala_mixed_model_plot, nrow = 1, labels = c('D', 'E'))
 
 
-scala_fig_2_supplement = plot_grid(scala_univar_plots, cell_types_microglia_plot, bottom_row_plot, nrow = 3, rel_heights = c(1.25, 1.5, 1.5), labels = c('A', 'B', ''))
+scala_fig_2_supplement = plot_grid(scala_univar_plots, cell_types_microglia_plot, bottom_row_plot, nrow = 3, rel_heights = c(4, 2.5, 2), labels = c('', 'C', ''))
 
-ggsave(filename = "./output/scala_fig_2_supplement.png", device = "png", width = 10, height = 12, units = "in", dpi = 500, limitsize = F)
+ggsave(filename = "./output/scala_fig_2_supplement.png", device = "png", width = 12, height = 15, units = "in", dpi = 500, limitsize = F)
 
-ggsave(filename = "./output/scala_fig_2_supplement.svg", device = "svg", width = 10, height = 12, units = "in", dpi = 500, limitsize = F)
+ggsave(filename = "./output/scala_fig_2_supplement.svg", device = "svg", width = 12, height = 15, units = "in", dpi = 500, limitsize = F)
 ```

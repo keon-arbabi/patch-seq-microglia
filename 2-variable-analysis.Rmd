@@ -63,6 +63,39 @@ metadata_h$cluster_label = factor(metadata_h$cluster_label,
                                   levels = c("Exc L2 LAMP5 LTK","Exc L2-4 LINC00507 GLP2R","Exc L2-3 LINC00507 FREM3","Exc L3-4 RORB CARM1P1","Exc L3-5 RORB COL22A1"),
                                   labels = c("LTK","GLP2R","FREM3","CARM1P1","COL22A1"))
 
+metadata_h$slice_id = ''
+metadata_h$cell_num = 0
+
+for (i in 1:nrow(metadata_h)) {
+  split_string = str_split(metadata_h[i, 'cell_specimen_name'], '\\.') %>% unlist
+  print(split_string)
+  if (length(split_string)== 7){
+    slice_num = split_string[5]
+    cell_num = split_string[7]
+  }else{
+    slice_num = split_string[5]
+    cell_num = split_string[6]
+  }
+  print(slice_num)
+  print(cell_num)
+  metadata_h[i, 'slice_id'] = paste0(metadata_h[i, 'donor_id'], '.', slice_num )
+  metadata_h[i, 'slice_num'] = slice_num  %>% as.integer()
+  metadata_h[i, 'cell_num'] = cell_num %>% as.integer()
+  
+}
+metadata_h %>% group_by(slice_id) %>% tally()
+metadata_h %>% group_by(donor_id) %>% tally()
+
+ephys_h = read_csv('/external/rprshnas01/netdata_kcni/stlab/Public/AIBS_patchseq_2020/human/ephys/processed/ephys_features_berg_w_QC.csv')
+metadata_h = left_join(metadata_h, ephys_h, by = "cell_specimen_id")
+
+metadata_h = metadata_h %>% 
+  group_by(donor_id) %>% 
+  arrange(qc_recording_date) %>%
+  mutate(first_cell_time = first(qc_recording_date), 
+         rel_recording_time = as.numeric(difftime(qc_recording_date, first_cell_time, units = "hours")))
+
+    
 ```
 
 ## univariate plots 
@@ -131,7 +164,70 @@ h5 = metadata_h %>% filter(cells_per_donor > 2) %>% ggplot(aes(x = donor_id, y =
         axis.title = element_text(size = 16)) +
   stat_compare_means(method = "kruskal.test", label.y = 1, label.x = 3.5, size = 4)
 
-human_univar_plots = plot_grid(h5, h1, h4, h3, nrow = 1, align = "h", rel_widths = c(3,2,1,1))
+h6 = metadata_h %>% filter(cells_per_donor > 2) %>% ggplot(aes(x = as.factor(slice_num), y = Microglia)) + 
+  geom_boxplot(outlier.color = "NA", width = 0.6, lwd =  0.8, fill = "lightgrey") +
+  geom_jitter(alpha = 0.3, width = 0.25, shape = 16, size = 1.5) +
+  labs(x = "Donor ID", y = "Microglia Score") +
+  theme_classic() +
+  facet_wrap(~donor_id, scales = "free") +
+  theme(
+        axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
+        #axis.text.x = element_blank(),
+        #axis.ticks = element_blank(),
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 16)) +
+  stat_compare_means(method = "kruskal.test", label.y = 1, label.x = 3.5, size = 4)
+
+h7 = metadata_h %>% filter(cells_per_donor > 2) %>% ggplot(aes(x = qc_recording_date, y = Microglia, color = donor_id)) + 
+  #geom_point(outlier.color = "NA", width = 0.6, lwd =  0.8, fill = "lightgrey") +
+  geom_point(alpha = 0.3, shape = 16, size = 1.5) + 
+  geom_smooth(method = 'lm', se = F) + 
+  # labs(x = "Donor ID", y = "Microglia Score") +
+  theme_classic() +
+  facet_wrap(~donor_id, scales = "free") +
+  theme(
+        axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
+        #axis.text.x = element_blank(),
+        #axis.ticks = element_blank(),
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 16)) +
+  stat_compare_means(method = "kruskal.test", label.y = 1, label.x = 3.5, size = 4)
+
+h7 = metadata_h %>% filter(cells_per_donor > 2) %>% ggplot(aes(x = rel_recording_time, y = Microglia)) + 
+  #geom_point(outlier.color = "NA", width = 0.6, lwd =  0.8, fill = "lightgrey") +
+  geom_point(alpha = 0.3, shape = 16, size = 1.5) + 
+  geom_smooth(method = 'lm', se = F, color = "black", lwd = 1.0) + 
+  labs(x = "Break-in Time \n(hours after first cell)", y = "Microglia Score") +
+  theme_classic() +
+  # facet_wrap(~donor_id, scales = "free") +
+  theme(
+        axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
+        #axis.text.x = element_blank(),
+        #axis.ticks = element_blank(),
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 16)) +
+  stat_cor(method = "pearson", label.y = 1, size = 4)
+
+metadata_h$donor_id = fct_reorder(metadata_h$donor_id, -metadata_h$cells_per_donor)
+
+h8 = metadata_h %>% filter(cells_per_donor > 4) %>% ggplot(aes(x = rel_recording_time, y = Microglia, group = donor_id)) + 
+  #geom_point(outlier.color = "NA", width = 0.6, lwd =  0.8, fill = "lightgrey") +
+  geom_smooth(method = 'lm', se = F, color = "black", lwd = 1.0) + 
+  geom_point(alpha = 0.7, shape = 16, size = 1.5) + 
+  labs(x = "Break-in Time \n(hours after first cell)", y = "Microglia Score") +
+  theme_classic() +
+  facet_wrap(~donor_id) +
+  #facet_wrap(~donor_id, scales = "free") +
+  theme(
+        axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
+        #axis.text.x = element_blank(),
+        #axis.ticks = element_blank(),
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 16)) +
+  stat_cor(method = "pearson", label.y = 1, size = 4)
+
+
+human_univar_plots = plot_grid(h5, h4, h3, h7, nrow = 1, align = "h", rel_widths = c(3,1,1, 2))
 human_univar_plots
 
 ```
@@ -139,37 +235,38 @@ human_univar_plots
 ## mixed effects models 
 ```{r}
 
-metadata_h_filt = metadata_h %>% 
-  dplyr::select(-c("ethnicity","neuron_reconstruction_type","GFAP.ctx.ABC")) %>%
+continous_vars = c("Microglia","age","depth_from_pia_um", "qc_initial_access_resistance_mohm", "rel_recording_time")
+categorical_vars = c("hemisphere","biological_sex","medical_conditions","cluster_label","Iba1.bin","Gfap.bin","donor_id")
+
+metadata_h_filt = metadata_h[, c(continous_vars, categorical_vars)]%>%
   mutate(age = as.numeric(gsub(" yrs","",age))) %>% na_if("") %>% na.omit()
 
-continous_vars = c("Microglia","age","depth_from_pia_um")
-categorical_vars = c("hemisphere","biological_sex","medical_conditions","cluster_label","Iba1.bin","Gfap.bin","donor_id")
+
 metadata_h_filt[,categorical_vars] = lapply(metadata_h_filt[,categorical_vars], factor)
 
-#ggpairs(metadata_h_filt[c(continous_vars,categorical_vars)], cardinality_threshold = 30)
-
 # full model
-form_full = Microglia ~ biological_sex + scale(age) + medical_conditions + scale(depth_from_pia_um) + cluster_label + Iba1.bin + Gfap.bin + (1|donor_id)
+form_full = Microglia ~ biological_sex + scale(age) + 
+  scale(rel_recording_time) + 
+  scale(qc_initial_access_resistance_mohm) + 
+  medical_conditions + scale(depth_from_pia_um) + cluster_label + Iba1.bin + Gfap.bin + (1|donor_id)
 fit_full = lmer(form_full, data = metadata_h_filt, REML = FALSE)
 random_rsq = r.squaredGLMM(fit_full)[2] - r.squaredGLMM(fit_full)[1]
-
 coefs = data.frame(coef(summary(fit_full)))
 coefs$p.z = 2 * (1 - pnorm(abs(coefs$t.value)))
-
 # null model 
 form_null = Microglia ~ 1 + (1|donor_id)
 fit_null = lmer(form_null, data = metadata_h_filt, REML = FALSE)
-
 # partial model testing
-res = lapply(c('biological_sex', 'scale(age)', 'medical_conditions','scale(depth_from_pia_um)', 'cluster_label', 'Iba1.bin', "Gfap.bin"), function(V){
+res = lapply(c('biological_sex', 'scale(age)', 'medical_conditions','scale(depth_from_pia_um)', 
+               'scale(rel_recording_time)', 
+               'scale(qc_initial_access_resistance_mohm)',
+               'cluster_label', 'Iba1.bin', "Gfap.bin"), function(V){
   
   form2 = gsub(V, "1", form_full, fixed = TRUE)
   form2 = as.formula(paste(form2[2], '~', form2[3]))
   
   fit_test = lmer(form2, data = metadata_h_filt, REML = F)  
   r.squaredGLMM(fit_test)
-
   temp = data.frame(variable = V, 
                     fm = r.squaredGLMM(fit_full)[1],
                     fc = r.squaredGLMM(fit_full)[2],
@@ -179,20 +276,21 @@ res = lapply(c('biological_sex', 'scale(age)', 'medical_conditions','scale(depth
                     fc_tc = (r.squaredGLMM(fit_full)[2] - r.squaredGLMM(fit_test)[2])
                     )
 })
-
-
 res = do.call(rbind, res)
 res = rbind(res, c("donor_id", rep(random_rsq, ncol(res)-1)))
-# res$variable = factor(res$variable,
-                      # levels = c(levels(res$variable), 'donor_id'))
-# res[nrow(res), 'variable'] = "donor_id"
 
 res[,2:7] = sapply(res[, 2:7], as.numeric)
 res$variable = factor(res$variable,
-                      levels = c("donor_id","cluster_label","scale(depth_from_pia_um)","medical_conditions","scale(age)","Iba1.bin","Gfap.bin","biological_sex"),
-                      labels = c("Donor","T-type","Pial depth","Medical condition","Age","IBA1 protein","GFAP protein","Biological sex"))
+                      levels = c("donor_id","cluster_label","scale(depth_from_pia_um)", "scale(rel_recording_time)",
+                                 "scale(qc_initial_access_resistance_mohm)",
+                                 "medical_conditions","scale(age)","Iba1.bin","Gfap.bin","biological_sex"),
+                      labels = c("Donor","T-type","Pial depth", "Break-in time",
+                                 "Access res.",
+                                 "Medical condition","Age","IBA1 protein","GFAP protein","Biological sex"))
 res$group = "human"
-res_h = res
+res_h = res %>% as_tibble()
+
+
 
 ```
 
@@ -203,11 +301,13 @@ res_h = res
 # patch-seq mouse
 qcMetrics_m = read.csv(file = here("output","mouse_qcMetrics.csv"))
 
-metadata_m = fread(file = here("data","patchseq","20200625_patchseq_metadata_mouse.csv"), data.table = FALSE) %>%
+metadata_m = fread(file = here("data","patchseq","20200711_patchseq_metadata_mouse.csv"), data.table = FALSE) %>%
   dplyr::rename(sample_id = transcriptomics_sample_id)
 metadata_m = merge(metadata_m, qcMetrics_m %>% dplyr::select(c("sample_id","major_type","contam_type","quality_score","Microglia")), by = "sample_id")
 metadata_m = metadata_m[colSums(!is.na(metadata_m))>0]
 rownames(metadata_m) = metadata_m$sample_id
+
+metadata_m = metadata_m %>% dplyr::rename(corresponding_AIT2.3.1_alias = `T-type Label`) # do this cause we iniitally wrote the code with the older metadata sheet and fields
 
 metadata_m = metadata_m %>% mutate(cluster_label = str_extract(corresponding_AIT2.3.1_alias, "\\w+")) 
 metadata_m = metadata_m %>% separate(corresponding_AIT2.3.1_alias, into = c("subclass", "second")) %>% 
@@ -219,7 +319,28 @@ metadata_m = metadata_m %>% filter(!corresponding_AIT2.3.1_alias %in% leaveout)
 metadata_m$cluster_label = factor(metadata_m$cluster_label, 
                                   levels = c("Lamp5","Pvalb","Serpinf1","Sncg","Sst","Vip"),
                                   labels = c("Lamp5","Pvalb","Serpinf1","Sncg","Sst","Vip"),
-                                  )
+)
+
+metadata_m = metadata_m %>% separate(cell_specimen_name, into = c("first", "slice_num_first", "slice_num_second", "cell_num"), remove = F, sep = '\\.') 
+
+metadata_m = metadata_m %>% mutate(slice_name = paste(slice_num_first, slice_num_second, sep = '.'), 
+                                   slice_id = paste(donor_id, slice_name, sep = '.'))
+
+ephys_m = read.csv('/external/rprshnas01/netdata_kcni/stlab/Public/AIBS_patchseq_2020/mouse/ephys/processed/ephys_features_gouwens_w_QC.csv')
+metadata_m = metadata_m %>% 
+  left_join(., ephys_m, by = "cell_specimen_id")
+
+metadata_m = metadata_m %>% filter(!qc_recording_date == '') %>%
+  mutate(qc_recording_date = as.POSIXct(qc_recording_date)) %>%
+  group_by(donor_id) %>% 
+  arrange(qc_recording_date) %>%
+  mutate(first_cell_time = first(qc_recording_date), 
+         rel_recording_time = as.numeric(difftime(qc_recording_date, first_cell_time, units = "hours")))
+
+
+
+
+# metadata_m = metadata_m %>% mutate(slice_id = paste0(donor_id, slice_num_first, ))
 
 ```
 
@@ -263,12 +384,38 @@ m2 = metadata_m %>% ggplot(aes(x = cluster_label, y = Microglia, fill = cluster_
         axis.title = element_text(size = 16)) +
   stat_compare_means(method = "kruskal.test", label.y = 1, label.x = 1.5, size = 4)
 
+metadata_m = metadata_m %>% group_by(donor_id) %>% mutate(median_donor_id_Microglia = median(Microglia), cells_per_donor = n()) %>% ungroup()
+metadata_m$donor_id = fct_reorder(as.factor(metadata_m$donor_id), metadata_m$median_donor_id_Microglia)
+
 m3 = metadata_m %>% ggplot(aes(x = cell_soma_normalized_depth, y = Microglia)) + 
   geom_point(size = 1.5, shape = 16, color = "black") + 
   geom_smooth(method = "lm", se = FALSE, color = "black", lwd = 1.0) +
   labs(x = "Cell Soma Normalized\nDepth (N = 696)", y = "") +
   theme_classic() +
   stat_cor(method = "pearson", label.y = 1, size = 5)
+
+m4 = metadata_m %>% filter(cells_per_donor > 12) %>% ggplot(aes(x = as.factor(slice_name), y = Microglia)) + 
+  geom_boxplot(outlier.color = "NA", width = 0.6, lwd = 0.8) +
+  geom_jitter(size = 1.5, shape = 16, color = "black") + 
+  geom_smooth(method = "lm", se = FALSE, color = "black", lwd = 1.0) +
+  theme_classic() +
+  facet_wrap(~donor_id, scales = "free_x")
+
+m7 = metadata_m  %>% filter(cells_per_donor > 5) %>% ggplot(aes(x = rel_recording_time, y = Microglia)) + 
+  #geom_point(outlier.color = "NA", width = 0.6, lwd =  0.8, fill = "lightgrey") +
+  geom_point(alpha = 0.3, shape = 16, size = 1.5) + 
+  geom_smooth(method = 'lm', se = F) + 
+  # labs(x = "Donor ID", y = "Microglia Score") +
+  theme_classic() +
+  # facet_wrap(~donor_id, scales = "free") +
+  theme(
+        axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
+        #axis.text.x = element_blank(),
+        #axis.ticks = element_blank(),
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 16)) +
+  stat_compare_means(method = "kruskal.test", label.y = 1, label.x = 3.5, size = 4)
+
 
 mouse_univar_plot = plot_grid(m2, m1, nrow = 1, align = "h", rel_widths = c(2, 5))
 mouse_univar_plot
@@ -278,23 +425,25 @@ mouse_univar_plot
 ## mixed effects models 
 ```{r}
 
-metadata_m_filt = metadata_m %>% 
-  dplyr::select(-c("apical_dendrite_status","neuron_reconstruction_type")) %>%
+continous_vars = c("Microglia","age", "rel_recording_time", "qc_initial_access_resistance_mohm")
+categorical_vars = c("hemisphere","biological_sex","corresponding_AIT2.3.1_alias","cluster_label", "donor_id")
+
+metadata_m_filt = metadata_m[, c(continous_vars, categorical_vars)] %>%  
   mutate(age = case_when(age == "10 wks" ~ "P70",
                          age == "9 wks" ~ "P90",
                          age == "6 wks" ~ "P60",
                          TRUE ~ age)) %>%
-  mutate(age = as.numeric(gsub("P","",age))) %>% na_if("") %>% na.omit() %>%
+  mutate(age = as.numeric(gsub("P","",age)))  %>% na_if("") %>% na.omit() %>%
   filter(!cluster_label == "Serpinf1") # remove as too few after filtering 
 
-continous_vars = c("Microglia","age")
-categorical_vars = c("hemisphere","biological_sex","corresponding_AIT2.3.1_alias","donor_id")
+
 metadata_m_filt[,categorical_vars] = lapply(metadata_m_filt[,categorical_vars], factor)
 
 # ggpairs(metadata_m_filt[c(continous_vars,categorical_vars)], cardinality_threshold = 350)
 
 # full model
-form_full = Microglia ~ biological_sex + scale(age) + corresponding_AIT2.3.1_alias + (1|donor_id)
+form_full = Microglia ~ biological_sex + scale(age) + scale(rel_recording_time) + scale(qc_initial_access_resistance_mohm) +
+  corresponding_AIT2.3.1_alias + (1|donor_id)
 fit_full = lmer(form_full, data = metadata_m_filt, REML = FALSE)
 random_rsq = r.squaredGLMM(fit_full)[2] - r.squaredGLMM(fit_full)[1]
 
@@ -306,7 +455,8 @@ form_null = Microglia ~ 1 + (1|donor_id)
 fit_null = lmer(form_null, data = metadata_m_filt, REML = FALSE)
 
 # partial model testing
-res = lapply(c('biological_sex', 'scale(age)', 'corresponding_AIT2.3.1_alias'), function(V){
+res = lapply(c('biological_sex', 'scale(age)', 'scale(rel_recording_time)', 'scale(qc_initial_access_resistance_mohm)',
+               'corresponding_AIT2.3.1_alias'), function(V){
   
   form2 = gsub(V, "1", form_full, fixed = TRUE)
   form2 = as.formula(paste(form2[2], '~', form2[3]))
@@ -331,10 +481,12 @@ res$variable = as.factor(res$variable)
 
 res[,2:7] = sapply(res[, 2:7], as.numeric)
 res$variable = factor(res$variable,
-                      levels = c("donor_id","corresponding_AIT2.3.1_alias","scale(cell_soma_normalized_depth)","scale(age)","biological_sex"),
-                      labels = c("Donor","T-type","normalized depth","Age","Biological sex"))
+                      levels = c("donor_id","corresponding_AIT2.3.1_alias","scale(age)",
+                                 "scale(rel_recording_time)", "scale(qc_initial_access_resistance_mohm)",
+                                 "biological_sex"),
+                      labels = c("Donor","T-type","Age","Break-in time", "Access res.", "Biological sex"))
 res$group = "mouse"
-res_m = res
+res_m = res %>% as_tibble()
 
 
 ```
@@ -347,14 +499,14 @@ res = rbind(res_h, res_m)
 
 mixed_model_plot = res %>%
   mutate(variable = reorder_within(variable, fm_tm, group)) %>%
-  ggplot(aes(x = variable, y = fm_tm)) + 
+  ggplot(aes(x = variable, y = fm_tm*100)) + 
   geom_col(color = "black", fill = "lightgrey", lwd = 0.8, show.legend = FALSE) +
   facet_grid(vars(group), scales = "free", space = "free")+
   coord_flip() +
   scale_x_reordered() +
   scale_y_continuous(expand = c(0,0)) +
-  ylim(0, 0.30) +
-  labs(y = "Variance Explained (R-squared)") +
+  ylim(0, 21) +
+  labs(y = "Variance Explained (R-squared, %)") +
   theme_classic() +
   theme(axis.title.y = element_blank(), 
         strip.text = element_text(size = 16),
@@ -373,6 +525,11 @@ plot_grid(human_univar_plots, mouse_univar_plot, mixed_model_plot,
 ggsave(filename = "./output/figure_2a.svg", device = "svg", width = 16, height = 17, units = "in", dpi = 500, limitsize = F)
 
 ggsave(filename = "./output/figure_2a.png", device = "png", width = 16, height = 17, units = "in", dpi = 500, limitsize = F)
+
+
+h8
+ggsave(filename = "./output/microglia_vs_break_in_time_supp.svg", device = "svg", width = 12, height = 12, units = "in", dpi = 500, limitsize = F)
+ggsave(filename = "./output/microglia_vs_break_in_time_supp.png", device = "png", width = 12, height = 8, units = "in", dpi = 500, limitsize = F)
 
 
 ```

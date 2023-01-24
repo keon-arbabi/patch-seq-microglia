@@ -44,6 +44,8 @@ suppressPackageStartupMessages({
 # load summarized ephys features 
 ephys_h = read.csv(file = here("data","processed_ephys","human_ephys_features_berg.csv"))
 # ephys_h = read.csv(url('https://raw.githubusercontent.com/AllenInstitute/patchseq_human_L23/master/data/human_mouse_ephys_all_0127.csv')) %>% 
+ephys_h = read_csv('/external/rprshnas01/netdata_kcni/stlab/Public/AIBS_patchseq_2020/human/ephys/processed/ephys_features_berg_w_QC.csv')
+  # rename(ephys_session_id = cell_specimen_id)
 #   rename(ephys_session_id = specimen_id)
 
 # load microglia scores 
@@ -54,19 +56,22 @@ metadata_h = fread(file = here("data","patchseq","20200625_patchseq_metadata_hum
   mutate(cluster_label = factor(cluster_label,
                                 levels = c("Exc L2 LAMP5 LTK","Exc L2-4 LINC00507 GLP2R","Exc L2-3 LINC00507 FREM3","Exc L3-4 RORB CARM1P1","Exc L3-5 RORB COL22A1"),
                                 labels = c("LTK","GLP2R","FREM3","CARM1P1","COL22A1"))) %>%
-  dplyr::select(c(ephys_session_id, sample_id, donor_id, cell_soma_normalized_depth, cluster_label, depth_from_pia_um)) %>%
+  dplyr::select(c(cell_specimen_id, ephys_session_id, sample_id, donor_id, cell_soma_normalized_depth, cluster_label, depth_from_pia_um, cell_specimen_name)) %>%
   left_join(., qcMetrics_h, by = "sample_id") %>%
-  left_join(., ephys_h, by = "ephys_session_id")
+  left_join(., ephys_h, by = "cell_specimen_id")
 
 # load summarized ephys features 
+
 # patch-seq mouse
 qcMetrics_m = read.csv(file = here("output","mouse_qcMetrics.csv"))
 
-metadata_m = fread(file = here("data","patchseq","20200625_patchseq_metadata_mouse.csv"), data.table = FALSE) %>%
+metadata_m = fread(file = here("data","patchseq","20200711_patchseq_metadata_mouse.csv"), data.table = FALSE) %>%
   dplyr::rename(sample_id = transcriptomics_sample_id)
 metadata_m = merge(metadata_m, qcMetrics_m %>% dplyr::select(c("sample_id","major_type","contam_type","quality_score","Microglia")), by = "sample_id")
 metadata_m = metadata_m[colSums(!is.na(metadata_m))>0]
 rownames(metadata_m) = metadata_m$sample_id
+
+metadata_m = metadata_m %>% dplyr::rename(corresponding_AIT2.3.1_alias = `T-type Label`) # do this cause we iniitally wrote the code with the older metadata sheet and fields
 
 metadata_m = metadata_m %>% mutate(cluster_label = str_extract(corresponding_AIT2.3.1_alias, "\\w+")) 
 metadata_m = metadata_m %>% separate(corresponding_AIT2.3.1_alias, into = c("subclass", "second")) %>% 
@@ -78,20 +83,23 @@ metadata_m = metadata_m %>% filter(!corresponding_AIT2.3.1_alias %in% leaveout)
 metadata_m$cluster_label = factor(metadata_m$cluster_label, 
                                   levels = c("Lamp5","Pvalb","Serpinf1","Sncg","Sst","Vip"),
                                   labels = c("Lamp5","Pvalb","Serpinf1","Sncg","Sst","Vip"),
-                                  )
+)
 
-ephys_m = read.csv(file = here("data","processed_ephys","mouse_ephys_features_gouwens.csv"))[,-1] %>% 
-  mutate(new_ephys_ses_id = str_extract(ephys_session_id, pattern = "(\\d)+_icephys.nwb"), 
-         original_ephys_session_id = ephys_session_id,
-         ephys_session_id = str_extract(new_ephys_ses_id, "(\\d)+") %>% as.numeric() 
-         )
-# ephys_h = read.csv(url('https://raw.githubusercontent.com/AllenInstitute/patchseq_human_L23/master/data/human_mouse_ephys_all_0127.csv')) %>% 
-  # rename(ephys_session_id = specimen_id)
+metadata_m = metadata_m %>% separate(cell_specimen_name, into = c("first", "slice_num_first", "slice_num_second", "cell_num"), remove = F, sep = '\\.') 
 
-# load metadata
-metadata_m = metadata_m %>%
-  dplyr::select(c(ephys_session_id, sample_id, donor_id, cell_soma_normalized_depth, cluster_label, Microglia, corresponding_AIT2.3.1_alias)) %>%
-  left_join(., ephys_m, by = "ephys_session_id")
+metadata_m = metadata_m %>% mutate(slice_name = paste(slice_num_first, slice_num_second, sep = '.'), 
+                                   slice_id = paste(donor_id, slice_name, sep = '.'))
+
+ephys_m = read.csv('/external/rprshnas01/netdata_kcni/stlab/Public/AIBS_patchseq_2020/mouse/ephys/processed/ephys_features_gouwens_w_QC.csv')
+metadata_m = metadata_m %>% 
+  left_join(., ephys_m, by = "cell_specimen_id")
+
+metadata_m = metadata_m %>% filter(!qc_recording_date == '') %>%
+  mutate(qc_recording_date = as.POSIXct(qc_recording_date)) %>%
+  group_by(donor_id) %>% 
+  arrange(qc_recording_date) %>%
+  mutate(first_cell_time = first(qc_recording_date), 
+         rel_recording_time = as.numeric(difftime(qc_recording_date, first_cell_time, units = "hours")))
 
 ```
 
@@ -103,17 +111,22 @@ metadata_m = metadata_m %>%
 metadata_h %<>% mutate(
                         input_resistance = log10(input_resistance), 
                         rheobase_i = log10(rheobase_i), 
-                        width = log10(width * 1000),
-                        apamp = peak_v - threshold_v, 
-                        ahpamp = threshold_v - fast_trough_v,
-)
+                        width = log10(rheo_width * 1000),
+                        apamp = rheo_peak_v - rheo_threshold_v, 
+                        ahpamp = rheo_threshold_v - rheo_fast_trough_v,
+) %>%
+  rename(trough_v = rheo_trough_v,
+         threshold_v = rheo_threshold_v)
+
 metadata_m %<>% mutate(
                         input_resistance = log10(input_resistance), 
                         rheobase_i = log10(rheobase_i), 
-                        width = log10(width * 1000),
-                        apamp = peak_v - threshold_v, 
-                        ahpamp = threshold_v - fast_trough_v,
-)
+                        width = log10(rheo_width * 1000),
+                        apamp = rheo_peak_v - rheo_threshold_v, 
+                        ahpamp = rheo_threshold_v - rheo_fast_trough_v,
+) %>%
+  rename(trough_v = rheo_trough_v,
+         threshold_v = rheo_threshold_v)
 
 
 model_features_list = c('input_resistance', 'rheobase_i', 'width', 'apamp', 'ahpamp', 'threshold_v', 'trough_v', 'fi_fit_slope', 'v_baseline', 'sag', 'adapt')
@@ -307,13 +320,16 @@ bar_graph_plot = effects_df_output  %>%
   theme_classic() + 
   geom_text(aes(label = ifelse(sig, "*", ""), y = y_asterisk_pos, group = species), color = "black",
             position = position_dodge(width = .9), size = 20 / .pt) + 
-  scale_fill_manual(values = c('#9632B8FF', '#EEA236FF', "dark green", 'light green')) +
+  scale_fill_manual(values = c('#9632B8FF', '#EEA236FF')) +
   geom_hline(yintercept = 0) + 
   ylab('Microglial assoc (Beta)') + 
   theme(axis.text.x = element_text(angle = 60, hjust = 1, vjust = 1, size = 15), 
         axis.title.x = element_blank(),
         axis.text = element_text(size = 12),
-        axis.title = element_text(size = 16)) 
+        axis.title = element_text(size = 16), 
+        legend.title=element_text(size=16),
+        legend.text=element_text(size=12)
+        ) 
 
 allen_institute_ephys_effects = effects_df_output
 

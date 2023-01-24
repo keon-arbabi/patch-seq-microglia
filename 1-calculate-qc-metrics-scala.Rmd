@@ -310,9 +310,6 @@ if(spcs == "mouse"){
 
 scala_qc = read.csv(file = "./output/scala_qcMetrics.csv") %>% mutate(Group = "Scala")
 
-
-# mouse_qc = qc_joined
-
 scala_qc$major_type = factor(scala_qc$major_type, levels = c('GABAergic', 'Glutamatergic'))
 mouse_contam_p = ggplot() + geom_density(data = scala_qc, 
                                          aes(x = Microglia, group = major_type, color = major_type), 
@@ -325,6 +322,8 @@ mouse_contam_p = ggplot() + geom_density(data = scala_qc,
   theme(axis.text = element_text(size = 12),
         axis.title = element_text(size = 16)) 
 mouse_contam_p
+
+scala_qc %>% group_by(major_type) %>% summarize(mean(Microglia), sd(Microglia))
 
 ```
 
