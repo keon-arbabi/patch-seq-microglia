@@ -225,7 +225,7 @@ scala_stats_results = lapply(c('GABAergic', 'Glutamatergic'), function(class_nam
   #dplyr::select(-c("ethnicity","neuron_reconstruction_type","GFAP.ctx.ABC")) %>%
   #mutate(age = as.numeric(gsub(" yrs","",age))) %>% na_if("") %>% na.omit()
 
-continous_vars = c("Microglia","age","depth_from_pia_um", "cell_num", "hold_time")
+continous_vars = c("Microglia","age","depth_from_pia_um")
 categorical_vars = c("biological_sex","corresponding_AIT2.3.1_alias","genotype", "donor_id")
 
 metadata_scala_filt[,categorical_vars] = lapply(metadata_scala_filt[,categorical_vars], factor)
@@ -234,7 +234,6 @@ metadata_scala_filt[,categorical_vars] = lapply(metadata_scala_filt[,categorical
 
 # full model
 form_full = Microglia ~ biological_sex + scale(age) + scale(depth_from_pia_um) + 
-  scale(cell_num) + scale(hold_time) + 
   corresponding_AIT2.3.1_alias + (1|donor_id)
 fit_full = lmer(form_full, data = metadata_scala_filt, REML = FALSE)
 random_rsq = r.squaredGLMM(fit_full)[2] - r.squaredGLMM(fit_full)[1]
@@ -248,7 +247,6 @@ fit_null = lmer(form_null, data = metadata_scala_filt, REML = FALSE)
 
 # partial model testing
 res = lapply(c('biological_sex', 'scale(age)', 'scale(depth_from_pia_um)', 
-               'scale(cell_num)' , 'scale(hold_time)',
                'corresponding_AIT2.3.1_alias'
                ), function(V){
   form2 = gsub(V, "1", form_full, fixed = TRUE)
@@ -276,8 +274,8 @@ res = rbind(res, c("donor_id", rep(random_rsq, ncol(res)-1)))
 res[,2:7] = sapply(res[, 2:7], as.numeric)
 res$variable = factor(res$variable,
                       levels = c("donor_id","corresponding_AIT2.3.1_alias","scale(depth_from_pia_um)","scale(age)",
-                                 "biological_sex", "scale(hold_time)", "scale(cell_num)"),
-                      labels = c("Donor","T-type","Pial depth","Age","Biol. sex", "Rec. Time", "Cell Num"))
+                                 "biological_sex"),
+                      labels = c("Donor","T-type","Pial depth","Age","Biol. sex"))
 
 res$group = class_name
 return(res)

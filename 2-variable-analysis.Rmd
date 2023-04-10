@@ -220,7 +220,24 @@ h8 = metadata_h %>% filter(cells_per_donor > 4) %>% ggplot(aes(x = rel_recording
         #axis.ticks = element_blank(),
         axis.text = element_text(size = 12),
         axis.title = element_text(size = 16)) +
-  stat_cor(method = "pearson", label.y = 1, size = 4)
+  stat_cor(method = "pearson", label.y = .9, size = 4)
+
+h9 = metadata_h %>% ggplot(aes(x = qc_seal_gohm, y = Microglia)) + 
+  #geom_point(outlier.color = "NA", width = 0.6, lwd =  0.8, fill = "lightgrey") +
+  geom_smooth(method = 'lm', se = F, color = "black", lwd = 1.0) + 
+  geom_point(alpha = 0.7, shape = 16, size = 1.5) + 
+  labs(x = "Initial seal resistance (GOhms)", y = "Microglia Score") +
+  theme_classic() +
+  # facet_wrap(~donor_id) +
+  #facet_wrap(~donor_id, scales = "free") +
+  theme(
+        axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
+        #axis.text.x = element_blank(),
+        #axis.ticks = element_blank(),
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 16)) +
+  stat_cor(method = "pearson", label.y = 1.0, size = 4)
+
 
 
 human_univar_plots = plot_grid(h5, h4, h3, h7, nrow = 1, align = "h", rel_widths = c(3,1,1, 2))
@@ -231,7 +248,7 @@ human_univar_plots
 ## mixed effects models 
 ```{r}
 
-continous_vars = c("Microglia","age","depth_from_pia_um", "qc_initial_access_resistance_mohm", "rel_recording_time")
+continous_vars = c("Microglia","age","depth_from_pia_um", "qc_seal_gohm", "rel_recording_time")
 categorical_vars = c("hemisphere","biological_sex","medical_conditions","cluster_label","Iba1.bin","Gfap.bin","donor_id")
 
 metadata_h_filt = metadata_h[, c(continous_vars, categorical_vars)]%>%
@@ -243,7 +260,7 @@ metadata_h_filt[,categorical_vars] = lapply(metadata_h_filt[,categorical_vars], 
 # full model
 form_full = Microglia ~ biological_sex + scale(age) + 
   scale(rel_recording_time) + 
-  scale(qc_initial_access_resistance_mohm) + 
+  scale(qc_seal_gohm) + 
   medical_conditions + scale(depth_from_pia_um) + cluster_label + Iba1.bin + Gfap.bin + (1|donor_id)
 fit_full = lmer(form_full, data = metadata_h_filt, REML = FALSE)
 random_rsq = r.squaredGLMM(fit_full)[2] - r.squaredGLMM(fit_full)[1]
@@ -255,7 +272,7 @@ fit_null = lmer(form_null, data = metadata_h_filt, REML = FALSE)
 # partial model testing
 res = lapply(c('biological_sex', 'scale(age)', 'medical_conditions','scale(depth_from_pia_um)', 
                'scale(rel_recording_time)', 
-               'scale(qc_initial_access_resistance_mohm)',
+               'scale(qc_seal_gohm)',
                'cluster_label', 'Iba1.bin', "Gfap.bin"), function(V){
   
   form2 = gsub(V, "1", form_full, fixed = TRUE)
@@ -279,10 +296,10 @@ res = rbind(res, c("donor_id", rep(random_rsq, ncol(res)-1)))
 res[,2:7] = sapply(res[, 2:7], as.numeric)
 res$variable = factor(res$variable,
                       levels = c("donor_id","cluster_label","scale(depth_from_pia_um)", "scale(rel_recording_time)",
-                                 "scale(qc_initial_access_resistance_mohm)",
+                                 "scale(qc_seal_gohm)",
                                  "medical_conditions","scale(age)","Iba1.bin","Gfap.bin","biological_sex"),
                       labels = c("Donor","T-type","Pial depth", "Break-in time",
-                                 "Access res.",
+                                 "Seal res.",
                                  "Medical condition","Age","IBA1 protein","GFAP protein","Biological sex"))
 res$group = "human"
 res_h = res %>% as_tibble()
@@ -422,7 +439,7 @@ mouse_univar_plot
 ## mixed effects models 
 ```{r}
 
-continous_vars = c("Microglia","age", "rel_recording_time", "qc_initial_access_resistance_mohm")
+continous_vars = c("Microglia","age", "rel_recording_time", "qc_seal_gohm")
 categorical_vars = c("hemisphere","biological_sex","corresponding_AIT2.3.1_alias","cluster_label", "donor_id")
 
 metadata_m_filt = metadata_m[, c(continous_vars, categorical_vars)] %>%  
@@ -439,7 +456,7 @@ metadata_m_filt[,categorical_vars] = lapply(metadata_m_filt[,categorical_vars], 
 # ggpairs(metadata_m_filt[c(continous_vars,categorical_vars)], cardinality_threshold = 350)
 
 # full model
-form_full = Microglia ~ biological_sex + scale(age) + scale(rel_recording_time) + scale(qc_initial_access_resistance_mohm) +
+form_full = Microglia ~ biological_sex + scale(age) + scale(rel_recording_time) + scale(qc_seal_gohm) +
   corresponding_AIT2.3.1_alias + (1|donor_id)
 fit_full = lmer(form_full, data = metadata_m_filt, REML = FALSE)
 random_rsq = r.squaredGLMM(fit_full)[2] - r.squaredGLMM(fit_full)[1]
@@ -452,7 +469,7 @@ form_null = Microglia ~ 1 + (1|donor_id)
 fit_null = lmer(form_null, data = metadata_m_filt, REML = FALSE)
 
 # partial model testing
-res = lapply(c('biological_sex', 'scale(age)', 'scale(rel_recording_time)', 'scale(qc_initial_access_resistance_mohm)',
+res = lapply(c('biological_sex', 'scale(age)', 'scale(rel_recording_time)', 'scale(qc_seal_gohm)',
                'corresponding_AIT2.3.1_alias'), function(V){
   
   form2 = gsub(V, "1", form_full, fixed = TRUE)
@@ -478,9 +495,9 @@ res$variable = as.factor(res$variable)
 res[,2:7] = sapply(res[, 2:7], as.numeric)
 res$variable = factor(res$variable,
                       levels = c("donor_id","corresponding_AIT2.3.1_alias","scale(age)",
-                                 "scale(rel_recording_time)", "scale(qc_initial_access_resistance_mohm)",
+                                 "scale(rel_recording_time)", "scale(qc_seal_gohm)",
                                  "biological_sex"),
-                      labels = c("Donor","T-type","Age","Break-in time", "Access res.", "Biological sex"))
+                      labels = c("Donor","T-type","Age","Break-in time", "Seal res.", "Biological sex"))
 res$group = "mouse"
 res_m = res %>% as_tibble()
 
@@ -522,8 +539,10 @@ plot_grid(human_univar_plots, NA, mouse_univar_plot, NA, mixed_model_plot,
 ggsave(filename = "./output/figure_2a.svg", device = "svg", width = 15.2, height = 15, units = "in", dpi = 500, limitsize = F)
 ggsave(filename = "./output/figure_2a.png", device = "png", width = 15.2, height = 15, units = "in", dpi = 750, limitsize = F)
 
-h8
-ggsave(filename = "./output/microglia_vs_break_in_time_supp.svg", device = "svg", width = 12, height = 12, units = "in", dpi = 500, limitsize = F)
+plot_grid(h8, h9, 
+          nrow = 2, labels = c('A', 'B'), align = "v", axis = "l", rel_heights = c(2,1), scale = 0.9)
+
+ggsave(filename = "./output/microglia_vs_break_in_time_supp.svg", device = "svg", width = 12, height = 8, units = "in", dpi = 500, limitsize = F)
 ggsave(filename = "./output/microglia_vs_break_in_time_supp.png", device = "png", width = 12, height = 8, units = "in", dpi = 500, limitsize = F)
 
 
