@@ -340,6 +340,8 @@ metadata_m = metadata_m %>% separate(cell_specimen_name, into = c("first", "slic
 metadata_m = metadata_m %>% mutate(slice_name = paste(slice_num_first, slice_num_second, sep = '.'), 
                                    slice_id = paste(donor_id, slice_name, sep = '.'))
 
+metadata_m = metadata_m %>% mutate(cortical_layer = tidyr::extract_numeric(structure)) 
+
 ephys_m = read.csv('/external/rprshnas01/netdata_kcni/stlab/Public/AIBS_patchseq_2020/mouse/ephys/processed/ephys_features_gouwens_w_QC.csv')
 metadata_m = metadata_m %>% 
   left_join(., ephys_m, by = "cell_specimen_id")
@@ -349,12 +351,8 @@ metadata_m = metadata_m %>% filter(!qc_recording_date == '') %>%
   group_by(donor_id) %>% 
   arrange(qc_recording_date) %>%
   mutate(first_cell_time = first(qc_recording_date), 
-         rel_recording_time = as.numeric(difftime(qc_recording_date, first_cell_time, units = "hours")))
-
-
-
-
-# metadata_m = metadata_m %>% mutate(slice_id = paste0(donor_id, slice_num_first, ))
+         rel_recording_time = as.numeric(difftime(qc_recording_date, first_cell_time, units = "hours"))) %>% 
+  mutate(cortical_layer = (str_extract(structure, "[0-9].?[0-9]?")))
 
 ```
 
@@ -429,10 +427,46 @@ m7 = metadata_m  %>% filter(cells_per_donor > 5) %>% ggplot(aes(x = rel_recordin
         axis.title = element_text(size = 16)) +
   stat_compare_means(method = "kruskal.test", label.y = 1, label.x = 3.5, size = 4)
 
+m8 = metadata_m %>% filter(!is.na(cortical_layer)) %>% ggplot(aes(x = as.factor(cortical_layer), y = Microglia)) + 
+  geom_boxplot(outlier.color = "NA", width = 0.6, lwd = 0.8, alpha = 0.75) +
+  geom_jitter(alpha = 0.1, width = 0.25, shape = 16, size = 1.75) +
+  labs(y = "Microglia Score", x = "Cortical layer") +
+  scale_fill_locuszoom() +
+  #scale_fill_manual(values = pal) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
+        legend.position = "none", 
+        axis.text = element_text(size = 14),
+        axis.title = element_text(size = 16)) +
+  stat_compare_means(method = "kruskal.test", label.y = 1, label.x = 1.5, size = 4)
+
+m9 = metadata_m %>% filter(!is.na(cortical_layer)) %>% ggplot(aes(x = as.factor(cortical_layer), y = Microglia)) + 
+  geom_boxplot(outlier.color = "NA", width = 0.6, lwd = 0.8, alpha = 0.75) +
+  geom_jitter(alpha = 0.1, width = 0.25, shape = 16, size = 1.75) +
+  labs(y = "Microglia Score", x = "Cortical layer") +
+  scale_fill_locuszoom() +
+  #scale_fill_manual(values = pal) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
+        legend.position = "none", 
+        axis.text = element_text(size = 14),
+        axis.title = element_text(size = 16)) +
+  stat_compare_means(method = "kruskal.test", label.y = 0.9, label.x = 1.5, size = 4) +
+  facet_wrap(~cluster_label)
+
+
 
 mouse_univar_plot = plot_grid(m2, m1, nrow = 1, align = "h", rel_widths = c(2, 5))
 
 mouse_univar_plot
+
+mouse_layer_plot = plot_grid(m8, m9, nrow = 2, align = "hv", rel_widths = c(1, 2), labels = c('A', 'B'))
+mouse_layer_plot
+ggsave(filename = "./output/mouse_layer_plot.png", device = "png", width = 12, height = 14, units = "in", dpi = 500, limitsize = F)
+ggsave(filename = "./output/mouse_layer_plot.svg", device = "svg", width = 12, height = 14, units = "in", dpi = 500, limitsize = F)
+
+
+
 
 ```
 
@@ -542,8 +576,8 @@ ggsave(filename = "./output/figure_2a.png", device = "png", width = 15.2, height
 plot_grid(h8, h9, 
           nrow = 2, labels = c('A', 'B'), align = "v", axis = "l", rel_heights = c(2,1), scale = 0.9)
 
-ggsave(filename = "./output/microglia_vs_break_in_time_supp.svg", device = "svg", width = 12, height = 8, units = "in", dpi = 500, limitsize = F)
-ggsave(filename = "./output/microglia_vs_break_in_time_supp.png", device = "png", width = 12, height = 8, units = "in", dpi = 500, limitsize = F)
+ggsave(filename = "./output/microglia_vs_break_in_time_supp.svg", device = "svg", width = 12, height = 14, units = "in", dpi = 500, limitsize = F)
+ggsave(filename = "./output/microglia_vs_break_in_time_supp.png", device = "png", width = 12, height = 14, units = "in", dpi = 500, limitsize = F)
 
 
 ```
